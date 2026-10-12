@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dev Authenticator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Live 2FA codes and one-click fill from your dev database or an encrypted personal vault.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1sGP85Kcn8zJ4iLifDUtGlhTbq2g0SFsHHUhRJdwPykXpJZrl9BF5r/TuskMR7cT2PPLvROXOFxRy9FOVoq5Ah6iepBYNjTgICvOrdmTTP9jEhoiBVmLc5n4EY9Nxe7dG98Oyze3IgtuXBg0iEai7N8N/J6TOubyNbXUN1MF2zmD4TgrvdzGiTqX5py2lDmBz1BrXPOM8ciMS/tq84zUu2nuoo4rNitv6UYdN/TXPl2tZAJ0g8K/boT32jsAhlZ5uNKchXbKwXCmLLC8aEixKB2ctsngIEMKJwSzNNXTTysk4ITHay/Y0kihO0e9OyyhlUnIi4VQkfbrrr7Qbl8T+wIDAQAB",
   "permissions": [

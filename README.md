@@ -1,6 +1,6 @@
 # Dev Authenticator
 
-Version 1.0.0 — see [CHANGELOG.md](CHANGELOG.md).
+Version 1.1.0 — see [CHANGELOG.md](CHANGELOG.md).
 
 Chrome extension that shows live 2FA (authenticator-app) codes so you can log in without a phone. It has two tabs:
 

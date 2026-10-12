@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-10-12
 
 - **Mongo URL encrypted:** the Database tab's URL (which may hold a password) is now stored sealed with the vault key next to the vault, never in browser storage; the popup sends it only when you save it and shows just host and database name. The old plain-text copy is migrated and deleted automatically. The Database tab now needs the vault unlocked.
 - **Alt+Shift+F quick fill:** fills and submits the code for the open site's single linked vault account, without opening the popup; falls back to the popup whenever there's any doubt.
