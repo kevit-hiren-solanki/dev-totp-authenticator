@@ -11,6 +11,10 @@
     "activeTab",
     "scripting"
   ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "Dev Authenticator",
     "default_popup": "popup.html",
@@ -22,6 +26,12 @@
         "default": "Alt+Shift+2"
       },
       "description": "Open Dev Authenticator"
+    },
+    "fill-current-site": {
+      "suggested_key": {
+        "default": "Alt+Shift+F"
+      },
+      "description": "Fill and verify the 2FA code for this site"
     }
   },
   "icons": {

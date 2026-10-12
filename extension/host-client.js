@@ -74,6 +74,19 @@ export function sendToHost(payload) {
 }
 
 /**
+ * Closes the connection, so Chrome stops the host process and the vault key leaves memory.
+ * @returns nothing
+ */
+export function disconnectHost() {
+  port?.disconnect();
+  port = null;
+  for (const request of pendingRequests.values()) {
+    request.reject(new Error('Disconnected.'));
+  }
+  pendingRequests.clear();
+}
+
+/**
  * Reads the unlock session token from browser session memory (cleared when the browser closes).
  * @returns the token, or null
  */

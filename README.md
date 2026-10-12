@@ -48,6 +48,7 @@ Your vault isn't affected: it lives in `~/.config/dev-authenticator/`, not in th
 - Click a code to copy it. **Enter** copies the first match.
 - Click **Fill** next to a code to type it into the 2FA field of the page you're on (single field or one box per digit) and press its Verify button. **Shift+click** fills without pressing Verify. If the page has no recognisable code field, the code is copied instead. Filling only happens on that click, only in the current tab, and only the 6-digit code reaches the page.
 - Search by name or email.
+- **Alt+Shift+F** on a login page fills and submits the code for that site's vault account without opening the popup. It acts only when exactly one account is linked to the site (see "This site" below); otherwise — vault locked, no linked account, several accounts, no code field — it opens the popup instead. The toolbar icon flashes ✓ on success. Change the key at `chrome://extensions/shortcuts`.
 - Only users who finished 2FA enrolment with the authenticator app (scanned the QR) appear. Email and WhatsApp codes are sent to you, so they can't be shown here.
 
 ## Vault (staging / production accounts)

@@ -1,4 +1,4 @@
-import { fillOtpCode } from './fill-otp.js';
+import { injectFill } from './fill-otp.js';
 import { HOST_MISSING_PATTERN, sendToHost, setBusy, vaultStatusWithResume, writeSessionToken } from './host-client.js';
 import { hostFromUrl, siteMatches } from './site-match.js';
 
@@ -234,7 +234,7 @@ async function fillIntoPage(account, fillEl, row, options) {
   try {
     const code = await freshCode(account);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (await injectFill(tab, code, options)) {
+    if ((await injectFill(tab, code, options)).filled) {
       window.close();
       return;
     }
@@ -247,29 +247,6 @@ async function fillIntoPage(account, fillEl, row, options) {
   }
   await copyCode(account, row);
   showMessage(`${reason} The code was copied instead — paste it with Ctrl+V.`);
-}
-
-/**
- * Runs the fill function in every frame of the tab (login forms often sit in an iframe),
- * retrying in the top frame alone if some frame can't be scripted.
- * @param tab - the active tab
- * @param code - the code to type
- * @param options - passed through to fillOtpCode (`submit`)
- * @returns true when some frame found and filled a code field
- */
-async function injectFill(tab, code, options) {
-  if (!tab?.id) {
-    throw new Error('no active tab');
-  }
-  const run = (allFrames) =>
-    chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames }, func: fillOtpCode, args: [code, options] });
-  let results;
-  try {
-    results = await run(true);
-  } catch {
-    results = await run(false);
-  }
-  return results.some((frame) => frame.result?.filled);
 }
 
 /**

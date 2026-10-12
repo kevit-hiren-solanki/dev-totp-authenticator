@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Alt+Shift+F quick fill:** fills and submits the code for the open site's single linked vault account, without opening the popup; falls back to the popup whenever there's any doubt.
 - **Use on another PC:** encrypted export/import of the vault (AES-256-GCM, scrypt), with the master password asked again before export, a 12-character minimum passphrase, merge-only import that skips duplicates, and strict validation of imported accounts.
 - Redesigned popup in GitHub's colors (dark and light), with bundled IBM Plex Sans and JetBrains Mono fonts.
 - Clearer row actions: a labelled **Fill** button instead of an arrow icon, and one consistent GitHub-style button look across Fill, delete, Cancel and Add account.

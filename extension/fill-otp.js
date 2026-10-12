@@ -120,3 +120,29 @@ export async function fillOtpCode(code, { submit = false } = {}) {
   const submitted = submit ? await pressSubmit(targets) : false;
   return { filled: true, fields: targets.length, submitted };
 }
+
+/**
+ * Runs fillOtpCode in every frame of a tab (login forms often sit in an iframe), retrying in the
+ * top frame alone if some frame can't be scripted. Used by the popup and the keyboard shortcut.
+ * @param tab - the tab to fill
+ * @param code - the code to type
+ * @param options - passed through to fillOtpCode (`submit`)
+ * @returns `{ filled, submitted }` across all frames
+ */
+export async function injectFill(tab, code, options) {
+  if (!tab?.id) {
+    throw new Error('no active tab');
+  }
+  const run = (allFrames) =>
+    chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames }, func: fillOtpCode, args: [code, options] });
+  let results;
+  try {
+    results = await run(true);
+  } catch {
+    results = await run(false);
+  }
+  return {
+    filled: results.some((frame) => frame.result?.filled),
+    submitted: results.some((frame) => frame.result?.submitted),
+  };
+}
