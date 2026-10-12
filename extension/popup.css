@@ -91,6 +91,11 @@
   box-sizing: border-box;
 }
 
+/* never scroll sideways, even when a tall panel adds a vertical scrollbar */
+html {
+  overflow-x: hidden;
+}
+
 body {
   width: 360px;
   margin: 0;
@@ -434,7 +439,7 @@ body.is-ending .code {
 
 /* Row actions share the default button look (same height, border, fill) as Fill and Cancel. */
 
-.row-wrap .row-delete {
+.row-wrap .row-edit {
   flex-shrink: 0;
   width: 30px;
   height: 30px;
@@ -443,18 +448,18 @@ body.is-ending .code {
   color: var(--muted);
 }
 
-.row-wrap .row-delete svg {
+.row-wrap .row-edit svg {
   width: 15px;
   height: 15px;
 }
 
-.row-wrap .row-delete:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--danger-soft);
+.row-wrap .row-edit:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 
-.row-wrap .row-delete:active {
+.row-wrap .row-edit:active {
   transform: translateY(1px);
 }
 
@@ -513,57 +518,6 @@ body.is-ending .code {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
-}
-
-/* inline remove confirmation: covers the card, width never changes */
-
-.row-confirm {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-2) 0 var(--space-3);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-md);
-  background: var(--bg-raised);
-  box-shadow: var(--shadow-pop);
-  animation: confirm-in 0.12s var(--ease);
-}
-
-.row-confirm[hidden] {
-  display: none;
-}
-
-.row-confirm-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.row-confirm-name {
-  font-weight: 600;
-}
-
-.row-confirm .button-secondary,
-.row-confirm .button-danger {
-  padding: 0 11px;
-}
-
-@keyframes confirm-in {
-  from {
-    opacity: 0;
-  }
-}
-
-.row-wrap.is-removing {
-  opacity: 0.6;
-  transition: opacity 0.15s var(--ease);
 }
 
 /* --- buttons --------------------------------------------------------------- */
@@ -682,6 +636,106 @@ body.is-ending .code {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* --- edit panel ------------------------------------------------------------------ */
+
+.panel-title {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.settings .field-label {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.site-link {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.site-link-status {
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.site-link-status.is-linked {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.site-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.site-link-actions:not(:has(button:not([hidden]))) {
+  display: none;
+}
+
+.site-link-actions .button-secondary {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  background: var(--bg-raised);
+}
+
+/* Remove sits apart on the left of the action row, and asks once more before acting */
+.button-danger-ghost {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--danger);
+  font: 600 12px var(--font-sans);
+  cursor: pointer;
+  transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+
+.button-danger-ghost:hover {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.button-danger-ghost[hidden],
+.remove-confirm[hidden],
+.edit-actions[hidden] {
+  display: none;
+}
+
+.edit-actions {
+  align-items: center;
+}
+
+.site-link-hint {
+  color: var(--muted);
+  font-size: 11px;
+  text-wrap: pretty;
+}
+
+.remove-confirm {
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+}
+
+.remove-confirm p {
+  margin: 0;
+  font-size: 12px;
+  text-wrap: pretty;
 }
 
 /* --- vault actions bar ------------------------------------------------------ */

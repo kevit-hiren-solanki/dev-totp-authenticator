@@ -105,6 +105,41 @@
       </div>
     </form>
 
+    <form id="vault-edit" class="settings" hidden novalidate>
+      <strong class="panel-title">Edit account</strong>
+
+      <label class="field-label" for="vault-edit-label">Label</label>
+      <input id="vault-edit-label" type="text" autocomplete="off" spellcheck="false" />
+
+      <label class="field-label" for="vault-edit-issuer">Issuer</label>
+      <input id="vault-edit-issuer" type="text" autocomplete="off" spellcheck="false" placeholder="Optional" />
+
+      <span class="field-label">Site</span>
+      <div class="site-link">
+        <span class="site-link-status" id="vault-edit-site"></span>
+        <div class="site-link-actions">
+          <button type="button" class="button-secondary" id="vault-edit-link"></button>
+          <button type="button" class="button-secondary" id="vault-edit-unlink">Unlink</button>
+        </div>
+        <span class="site-link-hint">Linked accounts are listed first on that site and work with <kbd>Alt+Shift+F</kbd>.</span>
+      </div>
+
+      <p class="settings-error" id="vault-edit-error" hidden></p>
+      <div class="settings-actions edit-actions" id="vault-edit-actions">
+        <button type="button" class="button-danger-ghost" id="vault-edit-remove">Remove</button>
+        <span class="vault-actions-spacer"></span>
+        <button type="button" class="button-secondary" id="vault-edit-cancel">Cancel</button>
+        <button type="submit" class="button-primary" id="vault-edit-save">Save</button>
+      </div>
+      <div class="remove-confirm" id="vault-edit-confirm" hidden>
+        <p>Remove this account? Its code can't be recovered without setting up 2FA again.</p>
+        <div class="settings-actions">
+          <button type="button" class="button-secondary" id="vault-edit-remove-cancel">Keep it</button>
+          <button type="button" class="button-danger" id="vault-edit-remove-confirm">Remove</button>
+        </div>
+      </div>
+    </form>
+
     <form id="vault-add" class="settings" hidden novalidate>
       <label for="vault-add-input">Add account</label>
       <button type="button" class="button-secondary" id="vault-scan">
@@ -226,18 +261,12 @@
         <button type="button" class="row-fill" title="Fill &amp; verify on this page (Shift+click: fill only)" aria-label="Fill and verify code on this page">
           <span class="row-fill-label">Fill</span>
         </button>
-        <button type="button" class="icon-button row-delete" title="Remove from vault" aria-label="Remove from vault">
+        <button type="button" class="icon-button row-edit" title="Edit account" aria-label="Edit account">
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 7h14" />
-            <path d="M9 7V5h6v2" />
-            <path d="M7 7l1 13h8l1-13" />
+            <path d="M4 20h4L19 9l-4-4L4 16z" />
+            <path d="M13.5 6.5l4 4" />
           </svg>
         </button>
-        <div class="row-confirm" role="alertdialog" hidden>
-          <span class="row-confirm-text">Remove <strong class="row-confirm-name"></strong>?</span>
-          <button type="button" class="button-secondary row-confirm-cancel">Cancel</button>
-          <button type="button" class="button-danger row-confirm-remove">Remove</button>
-        </div>
       </div>
     </template>
 

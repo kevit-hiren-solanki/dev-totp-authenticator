@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Edit account:** rename the label and issuer, and **Link to this site** / Unlink, from a pencil button on each vault row. The secret is never shown or editable. Remove moved into this panel (with a confirm step), which leaves more room for account names in the list.
+
 ## 1.1.0 — 2026-10-12
 
 - **Mongo URL encrypted:** the Database tab's URL (which may hold a password) is now stored sealed with the vault key next to the vault, never in browser storage; the popup sends it only when you save it and shows just host and database name. The old plain-text copy is migrated and deleted automatically. The Database tab now needs the vault unlocked.

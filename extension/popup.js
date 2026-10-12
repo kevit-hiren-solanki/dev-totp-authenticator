@@ -42,6 +42,20 @@ const vaultLockSubmitEl = document.getElementById('vault-lock-submit');
 const vaultActionsEl = document.getElementById('vault-actions');
 const vaultAddToggleEl = document.getElementById('vault-add-toggle');
 const vaultTransferEl = document.getElementById('vault-transfer');
+const vaultEditEl = document.getElementById('vault-edit');
+const vaultEditLabelEl = document.getElementById('vault-edit-label');
+const vaultEditIssuerEl = document.getElementById('vault-edit-issuer');
+const vaultEditSiteEl = document.getElementById('vault-edit-site');
+const vaultEditLinkEl = document.getElementById('vault-edit-link');
+const vaultEditUnlinkEl = document.getElementById('vault-edit-unlink');
+const vaultEditErrorEl = document.getElementById('vault-edit-error');
+const vaultEditCancelEl = document.getElementById('vault-edit-cancel');
+const vaultEditSaveEl = document.getElementById('vault-edit-save');
+const vaultEditRemoveEl = document.getElementById('vault-edit-remove');
+const vaultEditActionsEl = document.getElementById('vault-edit-actions');
+const vaultEditConfirmEl = document.getElementById('vault-edit-confirm');
+const vaultEditRemoveCancelEl = document.getElementById('vault-edit-remove-cancel');
+const vaultEditRemoveConfirmEl = document.getElementById('vault-edit-remove-confirm');
 const vaultChangePasswordEl = document.getElementById('vault-change-password');
 const vaultLockNowEl = document.getElementById('vault-lock-now');
 const vaultAddEl = document.getElementById('vault-add');
@@ -69,7 +83,7 @@ const state = {
   db: { configured: false, host: '', database: '' },
   refreshing: null,
   refreshQueued: false,
-  pendingDelete: null,
+  editing: null,
   currentHost: '',
   vault: { exists: false, unlocked: false },
 };
@@ -231,7 +245,7 @@ async function fillIntoPage(account, fillEl, row, options) {
 }
 
 /**
- * Builds one vault row: the clickable code plus a two-step remove button.
+ * Builds one vault row: the clickable code, Fill, and Edit (rename, link to a site, remove).
  * @param account - the vault account to show
  * @returns the row wrapper element
  */
@@ -247,78 +261,8 @@ function buildVaultRow(account) {
   wrap.querySelector('.site-badge').hidden = !isForCurrentSite(account);
   wireFillButton(wrap, account);
 
-  const confirmEl = wrap.querySelector('.row-confirm');
-  const cancelEl = confirmEl.querySelector('.row-confirm-cancel');
-  confirmEl.querySelector('.row-confirm-name').textContent = primary;
-  wrap.querySelector('.row-delete').addEventListener('click', () => {
-    state.pendingDelete = { id: account.id, removing: false };
-    confirmEl.hidden = false;
-    cancelEl.focus();
-  });
-  cancelEl.addEventListener('click', () => closeDeleteConfirm(wrap));
-  confirmEl.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !state.pendingDelete?.removing) {
-      event.stopPropagation();
-      closeDeleteConfirm(wrap);
-    }
-  });
-  confirmEl.querySelector('.row-confirm-remove').addEventListener('click', () => removeVaultAccount(account, wrap));
-
-  // The list is rebuilt every 30s; restore an open confirmation so it doesn't vanish mid-delete.
-  if (state.pendingDelete?.id === account.id) {
-    confirmEl.hidden = false;
-    if (state.pendingDelete.removing) {
-      markRemoving(wrap);
-    }
-  }
+  wrap.querySelector('.row-edit').addEventListener('click', () => openVaultEdit(account));
   return wrap;
-}
-
-/**
- * Hides a row's remove confirmation and returns focus to its delete button.
- * @param wrap - the row wrapper
- * @returns nothing
- */
-function closeDeleteConfirm(wrap) {
-  state.pendingDelete = null;
-  wrap.querySelector('.row-confirm').hidden = true;
-  wrap.querySelector('.row-delete').focus();
-}
-
-/**
- * Shows a row's confirmation as in progress: dimmed, Cancel disabled, Remove spinning.
- * @param wrap - the row wrapper
- * @returns nothing
- */
-function markRemoving(wrap) {
-  wrap.classList.add('is-removing');
-  wrap.querySelector('.row-confirm-cancel').disabled = true;
-  setBusy(wrap.querySelector('.row-confirm-remove'), 'Removing…');
-}
-
-/**
- * Removes a vault account after the user confirmed. The pending state lives in `state`, so a
- * list rebuild during the request keeps showing progress; the list is re-rendered either way.
- * @param account - the vault account to remove
- * @param wrap - the row wrapper clicked
- * @returns resolves once removed or the error is shown
- */
-async function removeVaultAccount(account, wrap) {
-  if (state.pendingDelete?.removing) {
-    return;
-  }
-  state.pendingDelete = { id: account.id, removing: true };
-  markRemoving(wrap);
-  try {
-    await sendToHost({ type: 'vault.remove', accountId: account.id });
-    state.accounts = state.accounts.filter((existing) => existing.id !== account.id);
-    state.pendingDelete = null;
-    renderList();
-  } catch (err) {
-    state.pendingDelete = null;
-    renderList();
-    showError('Could not remove the account', err.message);
-  }
 }
 
 /**
@@ -620,6 +564,7 @@ async function saveSettings(event) {
 function hideVaultPanels() {
   vaultLockEl.hidden = true;
   vaultAddEl.hidden = true;
+  vaultEditEl.hidden = true;
   vaultPasswordFormEl.hidden = true;
   vaultActionsEl.hidden = true;
 }
@@ -691,6 +636,89 @@ async function submitVaultLock(event) {
     vaultPasswordEl.select();
   } finally {
     done();
+  }
+}
+
+/**
+ * Opens the edit panel for one account. Code refresh pauses meanwhile, so the list is not
+ * rebuilt under the form. The secret is never part of this panel.
+ * @param account - the vault account to edit
+ * @returns nothing
+ */
+function openVaultEdit(account) {
+  state.expiresAt = 0;
+  state.editing = { id: account.id, domain: account.domain ?? '' };
+  setCodesViewVisible(false);
+  hideVaultPanels();
+  vaultEditEl.hidden = false;
+  vaultEditErrorEl.hidden = true;
+  vaultEditConfirmEl.hidden = true;
+  vaultEditActionsEl.hidden = false;
+  vaultEditLabelEl.value = account.label ?? '';
+  vaultEditIssuerEl.value = account.issuer ?? '';
+  renderEditSite();
+  vaultEditLabelEl.focus();
+}
+
+/**
+ * Shows the pending site link and which of Link / Unlink apply.
+ * @returns nothing
+ */
+function renderEditSite() {
+  const { domain } = state.editing;
+  const onThisSite = siteMatches(domain, state.currentHost);
+  vaultEditSiteEl.textContent = domain ? `Linked to ${domain}${onThisSite ? ' (this site)' : ''}` : 'Not linked to a site';
+  vaultEditSiteEl.classList.toggle('is-linked', Boolean(domain));
+  vaultEditLinkEl.hidden = !state.currentHost || onThisSite;
+  vaultEditLinkEl.textContent = domain ? `Link to ${state.currentHost} instead` : `Link to ${state.currentHost}`;
+  vaultEditUnlinkEl.hidden = !domain;
+}
+
+/**
+ * Saves the label, issuer and site link.
+ * @param event - the form submit event
+ * @returns resolves once saved or the error is shown
+ */
+async function submitVaultEdit(event) {
+  event.preventDefault();
+  vaultEditErrorEl.hidden = true;
+  const done = setBusy(vaultEditSaveEl, 'Saving…');
+  try {
+    await sendToHost({
+      type: 'vault.update',
+      accountId: state.editing.id,
+      label: vaultEditLabelEl.value,
+      issuer: vaultEditIssuerEl.value,
+      domain: state.editing.domain,
+    });
+    state.editing = null;
+    await refresh();
+  } catch (err) {
+    vaultEditErrorEl.textContent = err.message;
+    vaultEditErrorEl.hidden = false;
+  } finally {
+    done();
+  }
+}
+
+/**
+ * Removes the account being edited, after the inline confirmation.
+ * @returns resolves once removed or the error is shown
+ */
+async function removeEditedAccount() {
+  vaultEditErrorEl.hidden = true;
+  vaultEditRemoveCancelEl.disabled = true;
+  const done = setBusy(vaultEditRemoveConfirmEl, 'Removing…');
+  try {
+    await sendToHost({ type: 'vault.remove', accountId: state.editing.id });
+    state.editing = null;
+    await refresh();
+  } catch (err) {
+    vaultEditErrorEl.textContent = err.message;
+    vaultEditErrorEl.hidden = false;
+  } finally {
+    done();
+    vaultEditRemoveCancelEl.disabled = false;
   }
 }
 
@@ -900,7 +928,7 @@ async function submitVaultPassword(event) {
 async function setTab(tab) {
   state.tab = tab;
   state.accounts = [];
-  state.pendingDelete = null;
+  state.editing = null;
   state.expiresAt = 0;
   listEl.replaceChildren();
   statusEl.hidden = true;
@@ -969,6 +997,32 @@ for (const tabEl of tabEls) {
 }
 vaultLockEl.addEventListener('submit', submitVaultLock);
 vaultAddEl.addEventListener('submit', submitVaultAdd);
+vaultEditEl.addEventListener('submit', submitVaultEdit);
+vaultEditCancelEl.addEventListener('click', () => {
+  state.editing = null;
+  refresh();
+});
+vaultEditLinkEl.addEventListener('click', () => {
+  state.editing.domain = state.currentHost;
+  renderEditSite();
+});
+vaultEditUnlinkEl.addEventListener('click', () => {
+  state.editing.domain = '';
+  renderEditSite();
+});
+// The confirmation takes the place of the action row, so the panel doesn't grow.
+vaultEditRemoveEl.addEventListener('click', () => {
+  vaultEditErrorEl.hidden = true;
+  vaultEditActionsEl.hidden = true;
+  vaultEditConfirmEl.hidden = false;
+  vaultEditRemoveCancelEl.focus();
+});
+vaultEditRemoveCancelEl.addEventListener('click', () => {
+  vaultEditConfirmEl.hidden = true;
+  vaultEditActionsEl.hidden = false;
+  vaultEditRemoveEl.focus();
+});
+vaultEditRemoveConfirmEl.addEventListener('click', removeEditedAccount);
 vaultAddToggleEl.addEventListener('click', openVaultAdd);
 // Export/import lives in a tab: Chrome closes the popup when a file picker opens.
 vaultTransferEl.addEventListener('click', () => {

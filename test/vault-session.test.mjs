@@ -296,3 +296,78 @@ test('saving the database URL needs an unlocked vault', async () => {
   await session.handle({ type: 'vault.lock' });
   assert.throws(() => session.saveDbUrl(DB_URL), /locked/i);
 });
+
+async function sessionWithAccount() {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  await session.handle({ type: 'vault.add', otpauthUri: URI });
+  const [account] = (await session.handle({ type: 'vault.list' })).accounts;
+  return { session, account };
+}
+
+test('update renames an account and links it to a site, keeping its code', async () => {
+  const { session, account } = await sessionWithAccount();
+  const reply = await session.handle({
+    type: 'vault.update',
+    accountId: account.id,
+    label: '  Hiren (staging)  ',
+    issuer: 'Chatomate stag',
+    domain: 'Stag.Chatomate.com',
+  });
+  assert.ok(!JSON.stringify(reply).includes(SECRET), 'update reply must not carry the secret');
+
+  const [updated] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.deepEqual(
+    { label: updated.label, issuer: updated.issuer, domain: updated.domain, code: updated.code, id: updated.id },
+    { label: 'Hiren (staging)', issuer: 'Chatomate stag', domain: 'stag.chatomate.com', code: account.code, id: account.id },
+  );
+});
+
+test('update leaves fields that are not sent untouched', async () => {
+  const { session, account } = await sessionWithAccount();
+  await session.handle({ type: 'vault.update', accountId: account.id, domain: 'app.vezly.ai' });
+  const [updated] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(updated.label, account.label);
+  assert.equal(updated.issuer, account.issuer);
+  assert.equal(updated.domain, 'app.vezly.ai');
+});
+
+test('an empty domain unlinks the account from its site', async () => {
+  const { session, account } = await sessionWithAccount();
+  await session.handle({ type: 'vault.update', accountId: account.id, domain: 'app.vezly.ai' });
+  await session.handle({ type: 'vault.update', accountId: account.id, domain: '' });
+  assert.equal((await session.handle({ type: 'vault.list' })).accounts[0].domain, '');
+});
+
+test('update can never change the secret', async () => {
+  const { session, account } = await sessionWithAccount();
+  await session.handle({ type: 'vault.update', accountId: account.id, secret: 'KRSXG5CTMVRXEZLU', label: 'renamed' });
+  const [updated] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(updated.code, account.code);
+  assert.equal(updated.label, 'renamed');
+});
+
+test('update rejects an empty label, a malformed domain and an unknown account', async () => {
+  const { session, account } = await sessionWithAccount();
+  await assert.rejects(session.handle({ type: 'vault.update', accountId: account.id, label: '   ' }), /label/i);
+  await assert.rejects(session.handle({ type: 'vault.update', accountId: account.id, domain: 'javascript:alert(1)' }), /site/i);
+  await assert.rejects(session.handle({ type: 'vault.update', accountId: 'nope', label: 'x' }), /no account/i);
+  const [unchanged] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(unchanged.label, account.label);
+});
+
+test('updates survive lock and unlock', async () => {
+  const { session, account } = await sessionWithAccount();
+  await session.handle({ type: 'vault.update', accountId: account.id, label: 'persisted', domain: 'app.vezly.ai' });
+  await session.handle({ type: 'vault.lock' });
+  await session.handle({ type: 'vault.unlock', password: PASSWORD });
+  const [updated] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(updated.label, 'persisted');
+  assert.equal(updated.domain, 'app.vezly.ai');
+});
+
+test('update needs an unlocked vault', async () => {
+  const { session, account } = await sessionWithAccount();
+  await session.handle({ type: 'vault.lock' });
+  await assert.rejects(session.handle({ type: 'vault.update', accountId: account.id, label: 'x' }), /locked/i);
+});

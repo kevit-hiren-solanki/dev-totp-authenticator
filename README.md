@@ -62,7 +62,7 @@ Adding an account (once per account):
 2. In the Vault tab, click **+ Add account**, then **Scan QR code on this screen** while the QR is visible in the current tab — or paste the setup key / `otpauth://` URI instead.
 3. Scan the same QR with your phone app too if you want both to work, then finish enrolment using the code from either.
 
-The extension remembers which site you added each account on. Next time you open the popup on that site (any subdomain of it), that account is listed first with a **This site** badge. No badge means you're not on that account's site, so check the address bar before filling. Accounts added before this feature have no site; remove and re-add them to get one.
+The extension remembers which site you added each account on. Next time you open the popup on that site (any subdomain of it), that account is listed first with a **This site** badge. No badge means you're not on that account's site, so check the address bar before filling. To link an existing account (or fix its name), open the popup on that site, click the pencil next to the account, then **Link to this site** and **Save**. Edit never shows or changes the secret. Removing an account is in the same panel.
 
 Notes:
 

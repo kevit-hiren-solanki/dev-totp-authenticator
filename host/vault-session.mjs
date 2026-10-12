@@ -81,6 +81,8 @@ export class VaultSession {
         return this.add(request);
       case 'vault.remove':
         return this.remove(request.accountId);
+      case 'vault.update':
+        return this.update(request);
       case 'vault.changePassword':
         return this.changePassword(request.oldPassword, request.newPassword);
       case 'vault.export':
@@ -377,6 +379,39 @@ export class VaultSession {
       domain: normalizeDomain(candidate.domain),
       addedAt: this.now(),
     };
+  }
+
+  /**
+   * Renames an account or links it to a site. Only label, issuer and domain can change: the
+   * secret and code settings are never editable, and fields not sent are left as they are.
+   * @param request - `accountId`, plus any of `label`, `issuer`, `domain` ('' unlinks the site)
+   * @returns `{ updated: true }`
+   */
+  update(request) {
+    const accounts = this.requireUnlocked();
+    const account = accounts.find((candidate) => candidate.id === request.accountId);
+    if (!account) {
+      throw new Error('No account with that id.');
+    }
+    const changes = {};
+    if (request.label !== undefined) {
+      changes.label = String(request.label).trim().slice(0, MAX_TEXT_FIELD);
+      if (!changes.label) {
+        throw new Error('The account needs a label so you can tell the codes apart.');
+      }
+    }
+    if (request.issuer !== undefined) {
+      changes.issuer = String(request.issuer).trim().slice(0, MAX_TEXT_FIELD);
+    }
+    if (request.domain !== undefined) {
+      changes.domain = normalizeDomain(request.domain);
+      if (String(request.domain).trim() && !changes.domain) {
+        throw new Error('That is not a valid site name.');
+      }
+    }
+    Object.assign(account, changes);
+    saveVault(this.vaultPath, this.key, accounts);
+    return { updated: true };
   }
 
   /**
