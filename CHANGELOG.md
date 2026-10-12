@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-10-12
 
 - **Edit account:** rename the label and issuer, and **Link to this site** / Unlink, from a pencil button on each vault row. The secret is never shown or editable. Remove moved into this panel (with a confirm step), which leaves more room for account names in the list.
 
