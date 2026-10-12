@@ -1,6 +1,7 @@
 import { fillOtpCode } from './fill-otp.js';
+import { HOST_MISSING_PATTERN, sendToHost, setBusy, vaultStatusWithResume, writeSessionToken } from './host-client.js';
+import { hostFromUrl, siteMatches } from './site-match.js';
 
-const HOST_NAME = 'com.vezly.dev_totp';
 const DEFAULT_DB_URL = 'mongodb://localhost:27017/vezly';
 const TICK_MS = 250;
 const ENDING_SECONDS = 5;
@@ -9,11 +10,8 @@ const TIMER_CIRCUMFERENCE = 94.25;
 const LAST_COPIED_KEY = 'lastCopiedAt';
 const DB_URL_KEY = 'dbUrl';
 const TAB_KEY = 'activeTab';
-const HOST_MISSING_PATTERN = /not found|forbidden|exited/i;
 const QR_SCAN_WIDTHS = [1200, 2000];
 const QR_SCAN_TIMEOUT_MS = 15000;
-const SESSION_TOKEN_KEY = 'vaultSessionToken';
-const REQUEST_TIMEOUT_MS = 20000;
 // A code with less life than this may expire before the user presses Verify.
 const MIN_FILL_LIFETIME_MS = 3000;
 
@@ -43,6 +41,7 @@ const vaultLockErrorEl = document.getElementById('vault-lock-error');
 const vaultLockSubmitEl = document.getElementById('vault-lock-submit');
 const vaultActionsEl = document.getElementById('vault-actions');
 const vaultAddToggleEl = document.getElementById('vault-add-toggle');
+const vaultTransferEl = document.getElementById('vault-transfer');
 const vaultChangePasswordEl = document.getElementById('vault-change-password');
 const vaultLockNowEl = document.getElementById('vault-lock-now');
 const vaultAddEl = document.getElementById('vault-add');
@@ -71,71 +70,9 @@ const state = {
   refreshing: null,
   refreshQueued: false,
   pendingDelete: null,
+  currentHost: '',
   vault: { exists: false, unlocked: false },
 };
-
-const pendingRequests = new Map();
-let nextRequestId = 1;
-let port = null;
-
-/**
- * Opens the native host; Chrome starts it and keeps it alive while the popup is open.
- * @returns nothing
- */
-function connect() {
-  port = chrome.runtime.connectNative(HOST_NAME);
-  port.onMessage.addListener((message) => {
-    const request = pendingRequests.get(message.id);
-    if (!request) {
-      return;
-    }
-    pendingRequests.delete(message.id);
-    if (message.ok) {
-      request.resolve(message);
-    } else {
-      request.reject(new Error(message.error));
-    }
-  });
-  port.onDisconnect.addListener(() => {
-    const reason = chrome.runtime.lastError?.message ?? 'The native host exited.';
-    port = null;
-    for (const request of pendingRequests.values()) {
-      request.reject(new Error(reason));
-    }
-    pendingRequests.clear();
-  });
-}
-
-/**
- * Sends one request to the native host and resolves with its reply.
- * @param payload - the message, minus the id this function assigns
- * @returns the host's reply
- */
-function sendToHost(payload) {
-  if (!port) {
-    connect();
-  }
-  return new Promise((resolve, reject) => {
-    const id = nextRequestId++;
-    // A reply that never arrives must fail loudly, not leave a button spinning forever.
-    const timer = setTimeout(() => {
-      pendingRequests.delete(id);
-      reject(new Error('The native host did not answer in time. Close and reopen the popup.'));
-    }, REQUEST_TIMEOUT_MS);
-    pendingRequests.set(id, {
-      resolve: (message) => {
-        clearTimeout(timer);
-        resolve(message);
-      },
-      reject: (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    });
-    // Envelope id last so a payload field can never replace it.
-    port.postMessage({ ...payload, id });
-  });
-}
 
 /**
  * Asks the native host for the current codes in a database.
@@ -184,12 +121,25 @@ function describeAccount(account) {
 function getVisibleAccounts() {
   const query = searchEl.value.trim().toLowerCase();
   const copyKey = (account) => account.email ?? account.id;
+  const onThisSite = (account) => (isForCurrentSite(account) ? 1 : 0);
   return state.accounts
     .filter((account) => {
       const { primary, secondary } = describeAccount(account);
-      return !query || `${primary} ${secondary}`.toLowerCase().includes(query);
+      return !query || `${primary} ${secondary} ${account.domain ?? ''}`.toLowerCase().includes(query);
     })
-    .sort((a, b) => (state.lastCopiedAt[copyKey(b)] ?? 0) - (state.lastCopiedAt[copyKey(a)] ?? 0));
+    .sort(
+      (a, b) =>
+        onThisSite(b) - onThisSite(a) || (state.lastCopiedAt[copyKey(b)] ?? 0) - (state.lastCopiedAt[copyKey(a)] ?? 0),
+    );
+}
+
+/**
+ * Says whether a vault account was added on the site open in the current tab.
+ * @param account - the account from either source (database accounts have no domain)
+ * @returns true when the account's saved domain matches the current tab
+ */
+function isForCurrentSite(account) {
+  return siteMatches(account.domain, state.currentHost);
 }
 
 /**
@@ -334,8 +284,9 @@ function buildVaultRow(account) {
   row.querySelector('.name').textContent = primary;
   row.querySelector('.email').textContent = secondary;
   row.querySelector('.code').textContent = formatCode(account.code);
-  row.title = `Copy code for ${primary}`;
+  row.title = account.domain ? `Copy code for ${primary} (${account.domain})` : `Copy code for ${primary}`;
   row.addEventListener('click', () => copyCode(account, row));
+  wrap.querySelector('.site-badge').hidden = !isForCurrentSite(account);
   wireFillButton(wrap, account);
 
   const confirmEl = wrap.querySelector('.row-confirm');
@@ -640,52 +591,12 @@ function showVaultLockForm(creating) {
 }
 
 /**
- * Reads the unlock session token from browser session memory (cleared when the browser closes).
- * @returns the token, or null
- */
-async function readSessionToken() {
-  try {
-    return (await chrome.storage.session.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Stores or clears the unlock session token.
- * @param token - the token from the host, or null to clear it
- * @returns resolves once stored
- */
-async function writeSessionToken(token) {
-  try {
-    if (token) {
-      await chrome.storage.session.set({ [SESSION_TOKEN_KEY]: token });
-    } else {
-      await chrome.storage.session.remove(SESSION_TOKEN_KEY);
-    }
-  } catch (err) {
-    console.warn('Could not store the unlock session', err);
-  }
-}
-
-/**
  * Loads the vault tab: resumes the six-hour unlock session if one is running,
  * shows the password form otherwise, then the live codes.
  * @returns resolves once the right view is shown
  */
 async function refreshVault() {
-  state.vault = await sendToHost({ type: 'vault.status' });
-  if (!state.vault.unlocked && state.vault.exists) {
-    const token = await readSessionToken();
-    if (token) {
-      try {
-        await sendToHost({ type: 'vault.resume', sessionToken: token });
-        state.vault.unlocked = true;
-      } catch {
-        await writeSessionToken(null);
-      }
-    }
-  }
+  state.vault = await vaultStatusWithResume();
   if (!state.vault.unlocked) {
     showVaultLockForm(!state.vault.exists);
     return;
@@ -728,24 +639,6 @@ async function submitVaultLock(event) {
 }
 
 /**
- * Disables a button and swaps its label while work runs, so busy never looks like stuck.
- * @param button - the button to mark busy
- * @param busyText - the label to show meanwhile
- * @returns a function that restores the button
- */
-function setBusy(button, busyText) {
-  const idleText = button.textContent;
-  button.disabled = true;
-  button.classList.add('is-busy');
-  button.textContent = busyText;
-  return () => {
-    button.disabled = false;
-    button.classList.remove('is-busy');
-    button.textContent = idleText;
-  };
-}
-
-/**
  * Opens the add-account panel.
  * @returns nothing
  */
@@ -776,6 +669,8 @@ async function submitVaultAdd(event) {
     // Typed values override the QR's own; the host keeps the QR's when these are blank.
     label: vaultAddLabelEl.value.trim(),
     issuer: vaultAddIssuerEl.value.trim(),
+    // The site this account belongs to, so it sorts first (and is badged) when you're back here.
+    domain: state.currentHost,
   };
   vaultAddErrorEl.hidden = true;
   const done = setBusy(vaultAddSaveEl, 'Adding…');
@@ -1023,6 +918,13 @@ for (const tabEl of tabEls) {
 vaultLockEl.addEventListener('submit', submitVaultLock);
 vaultAddEl.addEventListener('submit', submitVaultAdd);
 vaultAddToggleEl.addEventListener('click', openVaultAdd);
+// Export/import lives in a tab: Chrome closes the popup when a file picker opens.
+vaultTransferEl.addEventListener('click', () => {
+  chrome.tabs
+    .create({ url: chrome.runtime.getURL('transfer.html') })
+    .then(() => window.close())
+    .catch((err) => showError('Could not open the export page', err.message));
+});
 vaultAddCancelEl.addEventListener('click', () => refresh());
 vaultScanEl.addEventListener('click', scanQrOnScreen);
 vaultAddInputEl.addEventListener('input', () => {
@@ -1041,12 +943,26 @@ vaultLockNowEl.addEventListener('click', async () => {
   await refresh();
 });
 
-chrome.storage.local
-  .get([LAST_COPIED_KEY, DB_URL_KEY, TAB_KEY])
-  .then((stored) => {
+/**
+ * Reads the active tab's hostname; opening the popup grants activeTab, which exposes the URL.
+ * @returns the hostname, or '' on chrome:// pages or when it can't be read
+ */
+async function readCurrentHost() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return hostFromUrl(tab?.url);
+  } catch (err) {
+    console.warn('Could not read the current tab', err);
+    return '';
+  }
+}
+
+Promise.all([chrome.storage.local.get([LAST_COPIED_KEY, DB_URL_KEY, TAB_KEY]), readCurrentHost()])
+  .then(([stored, currentHost]) => {
     state.lastCopiedAt = stored[LAST_COPIED_KEY] ?? {};
     state.dbUrl = stored[DB_URL_KEY] ?? null;
     state.tab = stored[TAB_KEY] === 'vault' ? 'vault' : 'db';
+    state.currentHost = currentHost;
   })
   .catch((err) => {
     console.warn('Could not read saved settings', err);

@@ -11,11 +11,27 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { decodeBase32 } from './base32.mjs';
 import { parseOtpauthUri } from './otpauth.mjs';
 import { generateTotp, periodEndsAt } from './totp.mjs';
-import { changeVaultPassword, createVault, loadVaultWithKey, saveVault, unlockVault, vaultExists } from './vault.mjs';
+import {
+  changeVaultPassword,
+  createVault,
+  decryptExport,
+  encryptExport,
+  loadVaultWithKey,
+  saveVault,
+  unlockVault,
+  vaultExists,
+} from './vault.mjs';
 
 const MIN_PASSWORD_LENGTH = 8;
+// Export files travel through email/chat/USB and may sit there for years: demand a longer secret.
+const MIN_EXPORT_PASSPHRASE_LENGTH = 12;
+const MAX_IMPORT_BYTES = 1_000_000;
+const MAX_TEXT_FIELD = 200;
+const ALGORITHMS = new Set(['SHA1', 'SHA256', 'SHA512']);
 const FAILED_UNLOCK_DELAY_MS = 500;
 const ID_BYTES = 8;
+// A plain hostname: letters, digits, dots and hyphens, as read from the tab URL.
+const DOMAIN_PATTERN = /^[a-z0-9.-]{1,253}$/;
 // Bitwarden-style unlock session: the vault key, encrypted with a random one-time token that
 // only the popup holds (in browser memory). Either half alone is useless.
 const SESSION_DURATION_MS = 6 * 60 * 60 * 1000;
@@ -65,6 +81,10 @@ export class VaultSession {
         return this.remove(request.accountId);
       case 'vault.changePassword':
         return this.changePassword(request.oldPassword, request.newPassword);
+      case 'vault.export':
+        return this.exportVault(request.masterPassword, request.exportPassphrase);
+      case 'vault.import':
+        return this.importVault(request.content, request.passphrase);
       default:
         throw new Error(`Unknown vault request type: ${request.type}`);
     }
@@ -179,6 +199,7 @@ export class VaultSession {
         id: account.id,
         label: account.label,
         issuer: account.issuer,
+        domain: account.domain ?? '',
         code: generateTotp(decodeBase32(account.secret), {
           timeMs: nowMs,
           digits: account.digits,
@@ -214,18 +235,146 @@ export class VaultSession {
     if (!parsed.label) {
       throw new Error('The account needs a label so you can tell the codes apart.');
     }
-    // Proves the secret decodes and generates before anything is saved.
-    generateTotp(decodeBase32(parsed.secret), {
-      timeMs: this.now(),
-      digits: parsed.digits,
-      algorithm: parsed.algorithm,
-      periodSeconds: parsed.period,
-    });
+    this.assertGenerates(parsed);
 
-    const account = { id: randomBytes(ID_BYTES).toString('hex'), ...parsed, addedAt: this.now() };
+    const account = {
+      id: randomBytes(ID_BYTES).toString('hex'),
+      ...parsed,
+      domain: normalizeDomain(request.domain),
+      addedAt: this.now(),
+    };
     accounts.push(account);
     saveVault(this.vaultPath, this.key, accounts);
     return { accountId: account.id };
+  }
+
+  /**
+   * Proves an account's secret decodes and generates a code, before anything is saved.
+   * @param account - the parsed account fields
+   * @returns nothing; throws when the secret or its parameters are unusable
+   */
+  assertGenerates(account) {
+    generateTotp(decodeBase32(account.secret), {
+      timeMs: this.now(),
+      digits: account.digits,
+      algorithm: account.algorithm,
+      periodSeconds: account.period,
+    });
+  }
+
+  /**
+   * Exports every account into an encrypted file for another PC. Re-checks the master password
+   * even while unlocked, so someone at an unlocked computer can't walk away with the secrets.
+   * @param masterPassword - the vault's master password, typed again
+   * @param exportPassphrase - the passphrase that will protect the export file
+   * @returns the file's text, a suggested file name and the number of accounts
+   */
+  async exportVault(masterPassword, exportPassphrase) {
+    const accounts = this.requireUnlocked();
+    if (typeof exportPassphrase !== 'string' || exportPassphrase.length < MIN_EXPORT_PASSPHRASE_LENGTH) {
+      throw new Error(`The export passphrase must be at least ${MIN_EXPORT_PASSPHRASE_LENGTH} characters.`);
+    }
+    try {
+      unlockVault(this.vaultPath, String(masterPassword ?? ''));
+    } catch (err) {
+      await this.sleep(FAILED_UNLOCK_DELAY_MS);
+      throw err;
+    }
+    const portable = accounts.map(({ label, issuer, secret, algorithm, digits, period, domain }) => ({
+      label,
+      issuer,
+      secret,
+      algorithm,
+      digits,
+      period,
+      domain: domain ?? '',
+    }));
+    const content = encryptExport(portable, exportPassphrase, ...(this.kdf ? [this.kdf] : []));
+    const date = new Date(this.now()).toISOString().slice(0, 10);
+    return { content, fileName: `dev-authenticator-export-${date}.enc`, count: portable.length };
+  }
+
+  /**
+   * Merges an export file into this vault: never deletes or overwrites, skips accounts whose
+   * secret is already here, and drops anything malformed.
+   * @param content - the export file's text
+   * @param passphrase - the passphrase the file was exported with
+   * @returns how many accounts were imported, skipped as duplicates, or invalid
+   */
+  async importVault(content, passphrase) {
+    const accounts = this.requireUnlocked();
+    if (typeof content !== 'string' || content.length > MAX_IMPORT_BYTES) {
+      throw new Error('That file is too large to be a Dev Authenticator export file.');
+    }
+    let incoming;
+    try {
+      incoming = decryptExport(content, String(passphrase ?? ''));
+    } catch (err) {
+      await this.sleep(FAILED_UNLOCK_DELAY_MS);
+      throw err;
+    }
+
+    const known = new Set(accounts.map((account) => secretKey(account.secret)));
+    const result = { imported: 0, skipped: 0, invalid: 0 };
+    for (const candidate of incoming) {
+      const account = this.toImportedAccount(candidate);
+      if (!account) {
+        result.invalid += 1;
+      } else if (known.has(secretKey(account.secret))) {
+        result.skipped += 1;
+      } else {
+        known.add(secretKey(account.secret));
+        accounts.push(account);
+        result.imported += 1;
+      }
+    }
+    if (result.imported > 0) {
+      saveVault(this.vaultPath, this.key, accounts);
+    }
+    return result;
+  }
+
+  /**
+   * Validates one account from an export file and gives it a fresh local id.
+   * @param candidate - an entry from the decrypted file
+   * @returns the account to store, or null when any field is unusable
+   */
+  toImportedAccount(candidate) {
+    if (!candidate || typeof candidate !== 'object') {
+      return null;
+    }
+    const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_TEXT_FIELD) : '');
+    const account = {
+      label: text(candidate.label),
+      issuer: text(candidate.issuer),
+      secret: typeof candidate.secret === 'string' ? candidate.secret.replace(/\s+/g, '').toUpperCase() : '',
+      algorithm: candidate.algorithm,
+      digits: candidate.digits,
+      period: candidate.period,
+    };
+    const shapeOk =
+      account.label &&
+      ALGORITHMS.has(account.algorithm) &&
+      Number.isInteger(account.digits) &&
+      account.digits >= 6 &&
+      account.digits <= 8 &&
+      Number.isInteger(account.period) &&
+      account.period >= 15 &&
+      account.period <= 300;
+    if (!shapeOk) {
+      return null;
+    }
+    try {
+      this.assertGenerates(account);
+    } catch {
+      return null;
+    }
+    return {
+      id: randomBytes(ID_BYTES).toString('hex'),
+      ...account,
+      domain: normalizeDomain(candidate.domain),
+      addedAt: this.now(),
+    };
   }
 
   /**
@@ -272,6 +421,25 @@ export class VaultSession {
     }
     return this.accounts;
   }
+}
+
+/**
+ * The comparable form of a secret, for duplicate detection on import.
+ * @param secret - a base32 secret
+ * @returns the secret without spaces, padding or case differences
+ */
+function secretKey(secret) {
+  return String(secret ?? '').replace(/[\s=]/g, '').toUpperCase();
+}
+
+/**
+ * Normalizes the site the account was added on; anything that isn't a plain hostname is dropped.
+ * @param domain - the hostname the popup read from the active tab
+ * @returns the lowercase hostname, or ''
+ */
+function normalizeDomain(domain) {
+  const host = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
+  return DOMAIN_PATTERN.test(host) ? host : '';
 }
 
 /**

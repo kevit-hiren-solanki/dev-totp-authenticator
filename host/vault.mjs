@@ -18,6 +18,11 @@ const DIR_MODE = 0o700;
 
 // Interactive-login scrypt cost (OWASP recommendation): ~100ms and 128MB, hostile to brute force.
 const DEFAULT_KDF = { N: 2 ** 17, r: 8, p: 1 };
+const EXPORT_KIND = 'dev-authenticator-export';
+const EXPORT_VERSION = 1;
+// An import file names its own scrypt cost; bound it so a crafted file can't stall the host.
+const MIN_IMPORT_N = 2 ** 10;
+const MAX_IMPORT_N = 2 ** 17;
 
 /**
  * Derives the vault key from the master password.
@@ -39,18 +44,7 @@ function deriveKey(password, salt, kdf) {
  * @returns nothing
  */
 function writeVaultFile(path, key, accounts, kdfHeader) {
-  const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const data = Buffer.concat([cipher.update(JSON.stringify(accounts), 'utf8'), cipher.final()]);
-
-  const file = {
-    v: VAULT_VERSION,
-    kdf: kdfHeader,
-    cipher: 'aes-256-gcm',
-    iv: iv.toString('base64'),
-    tag: cipher.getAuthTag().toString('base64'),
-    data: data.toString('base64'),
-  };
+  const file = { v: VAULT_VERSION, kdf: kdfHeader, cipher: 'aes-256-gcm', ...seal(key, accounts) };
 
   mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE });
   // Write-then-rename so a crash mid-write can never leave a truncated vault.
@@ -114,15 +108,102 @@ export function loadVaultWithKey(path, key) {
  * @returns the account list
  */
 function decryptVault(file, key) {
+  return open(key, file, 'Wrong master password, or the vault file is corrupted.');
+}
+
+/**
+ * Encrypts a JSON value with AES-256-GCM under a fresh random IV.
+ * @param key - the 32-byte key
+ * @param value - any JSON-serializable value
+ * @returns the base64 iv, auth tag and ciphertext
+ */
+function seal(key, value) {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const data = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') };
+}
+
+/**
+ * Decrypts and verifies a value sealed by `seal`.
+ * @param key - the 32-byte key
+ * @param sealed - an object with base64 `iv`, `tag` and `data`
+ * @param failureMessage - the error to throw on any failure
+ * @returns the decrypted JSON value
+ */
+function open(key, sealed, failureMessage) {
   try {
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(file.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(file.tag, 'base64'));
-    const plaintext = Buffer.concat([decipher.update(Buffer.from(file.data, 'base64')), decipher.final()]);
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(sealed.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(sealed.tag, 'base64'));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(sealed.data, 'base64')), decipher.final()]);
     return JSON.parse(plaintext.toString('utf8'));
   } catch {
     // GCM cannot tell a wrong key from tampering, and saying which would help an attacker anyway.
-    throw new Error('Wrong master password, or the vault file is corrupted.');
+    throw new Error(failureMessage);
   }
+}
+
+/**
+ * Encrypts accounts into a portable export file, under a key derived from the export passphrase
+ * with a fresh salt. Nothing but the format marker and crypto parameters is readable.
+ * @param accounts - the accounts to export (secrets included)
+ * @param passphrase - the export passphrase
+ * @param kdf - scrypt cost override, used by tests; defaults to the production cost
+ * @returns the export file's text
+ */
+export function encryptExport(accounts, passphrase, kdf = DEFAULT_KDF) {
+  const salt = randomBytes(SALT_BYTES);
+  const key = deriveKey(passphrase, salt, kdf);
+  return JSON.stringify({
+    kind: EXPORT_KIND,
+    v: EXPORT_VERSION,
+    kdf: { algo: 'scrypt', N: kdf.N, r: kdf.r, p: kdf.p, salt: salt.toString('base64') },
+    cipher: 'aes-256-gcm',
+    ...seal(key, accounts),
+  });
+}
+
+/**
+ * Decrypts an export file made by `encryptExport`.
+ * @param content - the export file's text
+ * @param passphrase - the export passphrase
+ * @returns the exported accounts, not yet validated
+ */
+export function decryptExport(content, passphrase) {
+  let file;
+  try {
+    file = JSON.parse(content);
+  } catch {
+    file = null;
+  }
+  if (file?.kind !== EXPORT_KIND || file.v !== EXPORT_VERSION || file.cipher !== 'aes-256-gcm' || !isSafeImportKdf(file.kdf)) {
+    throw new Error('This is not a Dev Authenticator export file.');
+  }
+  const key = deriveKey(passphrase, Buffer.from(file.kdf.salt, 'base64'), file.kdf);
+  const accounts = open(key, file, 'Wrong passphrase, or the export file is corrupted.');
+  if (!Array.isArray(accounts)) {
+    throw new Error('Wrong passphrase, or the export file is corrupted.');
+  }
+  return accounts;
+}
+
+/**
+ * Checks an import file's scrypt parameters before they are used.
+ * @param kdf - the kdf block from the file
+ * @returns true when the cost is within the range this app produces
+ */
+function isSafeImportKdf(kdf) {
+  const { N, r, p } = kdf ?? {};
+  const powerOfTwo = Number.isInteger(N) && (N & (N - 1)) === 0;
+  return (
+    kdf?.algo === 'scrypt' &&
+    typeof kdf.salt === 'string' &&
+    powerOfTwo &&
+    N >= MIN_IMPORT_N &&
+    N <= MAX_IMPORT_N &&
+    r === 8 &&
+    p === 1
+  );
 }
 
 /**

@@ -77,6 +77,37 @@ test('blank label and issuer fields keep the QR values', async () => {
   assert.equal(account.issuer, 'Vezly');
 });
 
+test('the site domain sent with an add is stored and listed, lowercased', async () => {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  await session.handle({ type: 'vault.add', otpauthUri: URI, domain: 'Beta.Vezly.AI' });
+
+  const [account] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(account.domain, 'beta.vezly.ai');
+});
+
+test('an add without a domain lists an empty domain, like accounts saved before this feature', async () => {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  await session.handle({ type: 'vault.add', otpauthUri: URI });
+
+  const [account] = (await session.handle({ type: 'vault.list' })).accounts;
+  assert.equal(account.domain, '');
+});
+
+test('a malformed domain is dropped instead of stored', async () => {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  for (const domain of ['javascript:alert(1)', 'a b.com', 'x'.repeat(300), '<script>', 42]) {
+    await session.handle({ type: 'vault.add', otpauthUri: URI, domain });
+  }
+  const { accounts } = await session.handle({ type: 'vault.list' });
+  assert.deepEqual(
+    accounts.map((account) => account.domain),
+    ['', '', '', '', ''],
+  );
+});
+
 test('accounts survive lock and unlock', async () => {
   const session = makeSession();
   await session.handle({ type: 'vault.create', password: PASSWORD });

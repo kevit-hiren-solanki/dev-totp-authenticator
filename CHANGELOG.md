@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Use on another PC:** encrypted export/import of the vault (AES-256-GCM, scrypt), with the master password asked again before export, a 12-character minimum passphrase, merge-only import that skips duplicates, and strict validation of imported accounts.
+- Redesigned popup in GitHub's colors (dark and light), with bundled IBM Plex Sans and JetBrains Mono fonts.
+- Clearer row actions: a labelled **Fill** button instead of an arrow icon, and one consistent GitHub-style button look across Fill, delete, Cancel and Add account.
+- Vault accounts remember the site they were added on: on that site they're listed first with a **This site** badge, which also flags a look-alike site when the badge is missing.
+
 ## 1.0.0 — 2026-10-05
 
 First team release.

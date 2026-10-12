@@ -46,7 +46,7 @@ Your vault isn't affected: it lives in `~/.config/dev-authenticator/`, not in th
 ## Use
 
 - Click a code to copy it. **Enter** copies the first match.
-- Click the **fill** arrow next to a code to type it into the 2FA field of the page you're on (single field or one box per digit) and press its Verify button. **Shift+click** fills without pressing Verify. If the page has no recognisable code field, the code is copied instead. Filling only happens on that click, only in the current tab, and only the 6-digit code reaches the page.
+- Click **Fill** next to a code to type it into the 2FA field of the page you're on (single field or one box per digit) and press its Verify button. **Shift+click** fills without pressing Verify. If the page has no recognisable code field, the code is copied instead. Filling only happens on that click, only in the current tab, and only the 6-digit code reaches the page.
 - Search by name or email.
 - Only users who finished 2FA enrolment with the authenticator app (scanned the QR) appear. Email and WhatsApp codes are sent to you, so they can't be shown here.
 
@@ -60,6 +60,8 @@ Adding an account (once per account):
 2. In the Vault tab, click **+ Add account**, then **Scan QR code on this screen** while the QR is visible in the current tab — or paste the setup key / `otpauth://` URI instead.
 3. Scan the same QR with your phone app too if you want both to work, then finish enrolment using the code from either.
 
+The extension remembers which site you added each account on. Next time you open the popup on that site (any subdomain of it), that account is listed first with a **This site** badge. No badge means you're not on that account's site, so check the address bar before filling. Accounts added before this feature have no site; remove and re-add them to get one.
+
 Notes:
 
 - Microsoft Authenticator (and most phone apps) cannot export secrets, so existing enrolments can't be imported — re-enroll once as above.
@@ -67,6 +69,17 @@ Notes:
 - Keeping a 2FA secret next to the browser that holds the password weakens 2FA for that account. Fine for test accounts; think twice for real production admins.
 - Each person has their own vault and master password. Never share or copy `vault.enc` or `vault.enc.session` — add accounts on your own machine.
 - Fill only on the site you expect: check the address bar first, because a fake login page would receive the code too.
+
+## Use on another PC
+
+Your vault lives only on the PC where you created it. To use the same accounts on another PC, move them with an encrypted export file:
+
+1. **On this PC:** popup → **Vault** → **Export / Import** (opens a tab) → **Export**. Type your master password again, choose an export passphrase (at least 12 characters, different from your master password), and click **Download export file**.
+2. **Copy the file** (`dev-authenticator-export-YYYY-MM-DD.enc`) to the other PC any way you like: USB, email, chat. The file is encrypted (AES-256-GCM, scrypt-derived key) and contains no readable names, emails or secrets.
+3. **On the other PC:** install the extension (see Setup), create its vault in the popup, then **Vault** → **Export / Import** → **Import**. Pick the file and type the export passphrase.
+4. **Delete the export file** everywhere you copied it.
+
+Import only adds accounts. Accounts already in the vault are skipped, and nothing is overwritten or deleted. Each PC keeps its own master password, so the two can differ.
 
 ## Troubleshooting
 
@@ -78,6 +91,7 @@ Notes:
 | `Authentication failed` | Check the user, password and `authSource=admin`. |
 | `connect ECONNREFUSED` / timeout | Mongo isn't reachable on that host and port (not running, or you're off the office network/VPN). |
 | `Wrong master password, or the vault file is corrupted` | Retype the password. Forgotten? Delete `~/.config/dev-authenticator/vault.enc` and re-add accounts. |
+| `Wrong passphrase, or the export file is corrupted` | Retype the export passphrase exactly. If it still fails, export a fresh file on the other PC. |
 | `No QR code found on this screen` | Make the QR fully visible in the current tab (no overlay), then scan again — or paste the setup key. |
 | Code rejected at login | It expired. Wait for the next one; the ring shows the seconds left. |
 

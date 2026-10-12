@@ -124,3 +124,29 @@ test('the host still answers unknown types with an error, not a crash', async ()
     host.stop();
   }
 });
+
+test('an export made by one host imports into another host, end-to-end', async () => {
+  const pcA = startHost();
+  const pcB = startHost();
+  try {
+    await pcA.send({ type: 'vault.create', password: PASSWORD });
+    await pcA.send({ type: 'vault.add', otpauthUri: URI });
+    const exported = await pcA.send({ type: 'vault.export', masterPassword: PASSWORD, exportPassphrase: 'export passphrase 2026' });
+    assert.equal(exported.message.ok, true, exported.message.error);
+    assert.ok(!exported.raw.includes(SECRET), 'the export reply must not carry the secret in plaintext');
+
+    await pcB.send({ type: 'vault.create', password: 'another master password' });
+    const imported = await pcB.send({ type: 'vault.import', content: exported.message.content, passphrase: 'export passphrase 2026' });
+    assert.deepEqual(
+      { imported: imported.message.imported, skipped: imported.message.skipped, invalid: imported.message.invalid },
+      { imported: 1, skipped: 0, invalid: 0 },
+    );
+
+    const listA = await pcA.send({ type: 'vault.list' });
+    const listB = await pcB.send({ type: 'vault.list' });
+    assert.equal(listB.message.accounts[0].code, listA.message.accounts[0].code);
+  } finally {
+    pcA.stop();
+    pcB.stop();
+  }
+});

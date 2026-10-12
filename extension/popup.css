@@ -1,30 +1,88 @@
+/* ---------------------------------------------------------------------------
+   Dev Authenticator — popup styles
+   Token-first: primitives → semantic roles → components. Dark is the primary
+   theme (slate base, one green accent); light stays supported via media query.
+   Fonts are vendored (no network at runtime): IBM Plex Sans for UI text,
+   JetBrains Mono for codes and badges.
+--------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('vendor/fonts/ibm-plex-sans.woff2') format('woff2');
+  font-weight: 100 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('vendor/fonts/jetbrains-mono.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+}
+
 :root {
-  --bg: #ffffff;
-  --surface: #f5f7f8;
-  --surface-hover: #eaf2f1;
-  --border: #e2e7ea;
-  --text: #16202a;
-  --muted: #637381;
-  --accent: #0f766e;
-  --accent-soft: #ccebe7;
-  --warn: #c2410c;
-  --danger: #b42318;
-  --radius: 10px;
+  /* type */
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* spacing scale (dense, 8/10) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+
+  /* radius: softer containers, tighter inner elements */
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 7px;
+
+  --speed: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* GitHub (Primer) light */
+  --bg: #f6f8fa;
+  --bg-raised: #ffffff;
+  --surface: #eff1f4;
+  --surface-hover: #eaeef2;
+  --border: #d0d7de;
+  --border-strong: #afb8c1;
+  --text: #1f2328;
+  --muted: #59636e;
+  --accent: #1a7f37;
+  --accent-soft: #dafbe1;
+  --btn-primary: #1f883d;
+  --btn-primary-hover: #1a7f37;
+  --on-accent: #ffffff;
+  --warn: #9a6700;
+  --danger: #cf222e;
+  --danger-soft: #ffebe9;
+  --shadow-row: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-pop: 0 8px 24px rgba(31, 35, 40, 0.12);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12171c;
-    --surface: #1a2128;
-    --surface-hover: #1f2d30;
-    --border: #2a333c;
-    --text: #e6edf2;
-    --muted: #8b99a6;
-    --accent: #2dd4bf;
-    --accent-soft: #134e4a;
-    --warn: #fb923c;
-    --danger: #f97066;
+    /* GitHub (Primer) dark */
+    --bg: #0d1117;
+    --bg-raised: #161b22;
+    --surface: #21262d;
+    --surface-hover: #262c36;
+    --border: #30363d;
+    --border-strong: #3d444d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #3fb950;
+    --accent-soft: #15281a;
+    --btn-primary: #238636;
+    --btn-primary-hover: #2ea043;
+    --on-accent: #ffffff;
+    --warn: #d29922;
+    --danger: #f85149;
+    --danger-soft: #2d1215;
+    --shadow-row: 0 0 transparent;
+    --shadow-pop: 0 8px 24px rgba(1, 4, 9, 0.8);
     color-scheme: dark;
   }
 }
@@ -38,37 +96,67 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 400 13px/1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* --- header ------------------------------------------------------------- */
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 10px;
+  padding: var(--space-4) var(--space-4) var(--space-2);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.brand-mark svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 h1 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* --- countdown ring ------------------------------------------------------ */
 
 .timer {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  font-size: 11px;
-  font-weight: 600;
+  font: 500 10px var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
@@ -103,272 +191,172 @@ h1 {
   color: var(--warn);
 }
 
+/* --- tabs: segmented control --------------------------------------------- */
+
 .tabs {
   display: flex;
-  gap: 4px;
-  margin: 0 16px 10px;
+  gap: var(--space-1);
+  margin: 0 var(--space-4) var(--space-3);
   padding: 3px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
 .tab {
   flex: 1;
-  padding: 6px 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 0;
+  border: none;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--muted);
-  font: 600 12px system-ui, sans-serif;
+  font: 500 12px var(--font-sans);
+  letter-spacing: 0.01em;
   cursor: pointer;
+  transition: color var(--speed) var(--ease), background var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.tab svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .tab:hover {
   color: var(--text);
 }
 
+/* GitHub-style segmented control: the selected tab is raised, text stays neutral */
 .tab.is-active {
-  border-color: var(--border);
-  background: var(--bg);
-  color: var(--accent);
-}
-
-.vault-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 16px 10px;
-}
-
-.vault-actions-spacer {
-  flex: 1;
-}
-
-.vault-actions[hidden] {
-  display: none;
-}
-
-.row-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.row-wrap .row {
-  flex: 1;
-  width: auto;
-  min-width: 0;
-}
-
-/* Row actions are slimmer than header icons so the account name keeps room beside the code. */
-.row-wrap .icon-button {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-}
-
-.row-fill,
-.row-delete {
-  color: var(--muted);
-}
-
-.row-fill:hover,
-.row-fill:focus-visible {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--surface);
-  outline: none;
-}
-
-.row-fill.is-busy {
-  cursor: progress;
-}
-
-.row-fill.is-busy svg {
-  display: none;
-}
-
-.row-fill.is-busy::before {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-.row-delete:hover,
-.row-delete:focus-visible {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--surface);
-  outline: none;
-}
-
-/* The confirm bar covers the whole card, so its width never changes and nothing overflows. */
-.row-confirm {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px 0 12px;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  background: var(--surface);
-  animation: confirm-in 0.12s ease-out;
-}
-
-.row-confirm[hidden] {
-  display: none;
-}
-
-.row-confirm-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--bg-raised);
   color: var(--text);
-}
-
-.row-confirm-name {
   font-weight: 600;
+  border: 1px solid var(--border);
+  padding-top: 6px;
+  padding-bottom: 6px;
+  box-shadow: var(--shadow-row);
 }
 
-.button-danger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-  background: var(--danger);
-  color: #ffffff;
-  font: 600 12px system-ui, sans-serif;
-  cursor: pointer;
-}
-
-.button-danger:disabled,
-.row-confirm .button-secondary:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.button-danger.is-busy::before {
-  content: '';
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #ffffff;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes confirm-in {
-  from {
-    opacity: 0;
-  }
-}
-
-.row-wrap.is-removing {
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-
-.button-primary.is-busy,
-.button-secondary.is-busy {
-  cursor: progress;
-  opacity: 0.75;
-}
-
-/* Secrets are masked on screen so a glance or screenshot can't capture them. */
-.settings input.is-secret {
-  -webkit-text-security: disc;
-}
-
-.settings-success {
-  margin: 0;
-  font-size: 11px;
+.tab.is-active svg {
   color: var(--accent);
-  word-break: break-word;
 }
 
-.settings-success[hidden] {
-  display: none;
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
+
+/* --- search --------------------------------------------------------------- */
 
 .search {
-  padding: 0 16px 10px;
+  padding: 0 var(--space-4) var(--space-3);
 }
 
 .search input {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
   font: inherit;
   outline: none;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.search input::placeholder {
+  color: var(--muted);
 }
 
 .search input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--bg-raised);
 }
+
+/* --- account list --------------------------------------------------------- */
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 380px;
+  gap: var(--space-2);
+  max-height: 384px;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0 16px 12px;
+  padding: 2px var(--space-4) var(--space-3);
 }
 
+.row-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  animation: row-in 0.25s var(--ease) backwards;
+}
+
+/* subtle stagger on the first rows only */
+.row-wrap:nth-child(1) { animation-delay: 0ms; }
+.row-wrap:nth-child(2) { animation-delay: 30ms; }
+.row-wrap:nth-child(3) { animation-delay: 60ms; }
+.row-wrap:nth-child(4) { animation-delay: 90ms; }
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+.row-wrap .row,
 .row {
+  flex: 1;
+  width: auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 10px 12px;
+  gap: var(--space-3);
+  padding: 9px var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: var(--shadow-row);
+  transition: border-color var(--speed) var(--ease), background var(--speed) var(--ease), transform var(--speed) var(--ease);
 }
 
 .row:hover,
 .row:focus-visible {
-  background: var(--surface-hover);
   border-color: var(--accent);
+  background: var(--surface-hover);
   outline: none;
+}
+
+.row:active {
+  transform: scale(0.985);
 }
 
 .who {
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
 }
 
 .name {
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -376,10 +364,32 @@ h1 {
 
 .email {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* GitHub "Label" style: small, outlined, green — marks accounts for the open site */
+.site-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font: 500 10px/16px var(--font-sans);
+  white-space: nowrap;
+}
+
+.site-badge[hidden] {
+  display: none;
 }
 
 .code-wrap {
@@ -388,8 +398,8 @@ h1 {
 }
 
 .code {
-  font: 600 20px/1 ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
-  letter-spacing: 0.06em;
+  font: 700 19px/1 var(--font-mono);
+  letter-spacing: 0.04em;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
@@ -400,16 +410,15 @@ body.is-ending .code {
 
 .copied {
   position: absolute;
-  inset: 0;
+  inset: -2px -4px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--bg);
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--btn-primary);
+  color: var(--on-accent);
+  font: 600 11px var(--font-sans);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s var(--ease);
   pointer-events: none;
 }
 
@@ -423,91 +432,243 @@ body.is-ending .code {
   font-weight: 400;
 }
 
-.status {
-  margin: 0 16px 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+/* Row actions share the default button look (same height, border, fill) as Fill and Cancel. */
+
+.row-wrap .row-delete {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-color: var(--border);
   background: var(--surface);
   color: var(--muted);
 }
 
-.status.is-error {
+.row-wrap .row-delete svg {
+  width: 15px;
+  height: 15px;
+}
+
+.row-wrap .row-delete:hover {
+  color: var(--danger);
   border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.row-wrap .row-delete:active {
+  transform: translateY(1px);
+}
+
+/* Fill: a labelled button, not a bare glyph, so it reads as "type this code into the page" */
+.row-fill {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font: 600 12px var(--font-sans);
+  cursor: pointer;
+  transition: color var(--speed) var(--ease), background var(--speed) var(--ease), border-color var(--speed) var(--ease),
+    transform var(--speed) var(--ease);
+}
+
+.row-fill:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.row-fill:active {
+  transform: translateY(1px);
+}
+
+.row-fill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.row-fill:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+/* busy: the spinner replaces the label inside the same box, so the row never shifts */
+.row-fill.is-busy {
+  color: transparent;
+}
+
+.row-fill.is-busy::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  margin: -7.5px 0 0 -7.5px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* inline remove confirmation: covers the card, width never changes */
+
+.row-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+  animation: confirm-in 0.12s var(--ease);
+}
+
+.row-confirm[hidden] {
+  display: none;
+}
+
+.row-confirm-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.row-confirm-name {
+  font-weight: 600;
+}
+
+.row-confirm .button-secondary,
+.row-confirm .button-danger {
+  padding: 0 11px;
+}
+
+@keyframes confirm-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.row-wrap.is-removing {
+  opacity: 0.6;
+  transition: opacity 0.15s var(--ease);
+}
+
+/* --- buttons --------------------------------------------------------------- */
+
+.button-primary,
+.button-secondary,
+.button-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font: 600 12px var(--font-sans);
+  cursor: pointer;
+  transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease), transform var(--speed) var(--ease);
+}
+
+.button-primary:active,
+.button-secondary:active,
+.button-danger:active {
+  transform: translateY(1px);
+}
+
+.button-primary {
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  background: var(--btn-primary);
+  color: var(--on-accent);
+}
+
+.button-primary:hover {
+  background: var(--btn-primary-hover);
+}
+
+/* GitHub default button: filled surface + hairline border. Used by every non-primary action. */
+.button-secondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text);
 }
 
-.status strong {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--danger);
+.button-secondary:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 
-.status code {
-  display: block;
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--bg);
-  font: 12px ui-monospace, Menlo, monospace;
-  word-break: break-all;
+.button-danger {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #ffffff;
 }
 
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 16px 12px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11px;
+.button-primary:disabled,
+.button-secondary:disabled,
+.button-danger:disabled {
+  opacity: 0.55;
+  cursor: progress;
 }
 
-.db-label {
-  max-width: 120px;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: none;
-  color: var(--muted);
-  font: 11px ui-monospace, Menlo, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
+.button-primary.is-busy,
+.button-secondary.is-busy {
+  cursor: progress;
 }
 
-.db-label:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.button-danger.is-busy::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.button-primary:focus-visible,
+.button-secondary:focus-visible,
+.button-danger:focus-visible,
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .icon-button {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition: color var(--speed) var(--ease), background var(--speed) var(--ease), border-color var(--speed) var(--ease);
 }
 
 .icon-button svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .icon-button:hover,
@@ -517,15 +678,45 @@ body.is-ending .code {
   color: var(--accent);
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- vault actions bar ------------------------------------------------------ */
+
+.vault-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.vault-actions .button-secondary {
+  padding: 0 11px;
+}
+
+.vault-actions-spacer {
+  flex: 1;
+}
+
+.vault-actions[hidden] {
+  display: none;
+}
+
+/* --- panels (db settings / vault forms) ------------------------------------- */
+
 .settings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 16px 12px;
-  padding: 12px;
+  gap: var(--space-2);
+  margin: 0 var(--space-4) var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-row);
 }
 
 .settings[hidden],
@@ -540,78 +731,455 @@ body.is-ending .code {
 
 .settings label {
   font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.01em;
 }
 
 .settings input {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text);
-  font: 12px ui-monospace, Menlo, monospace;
+  font: 12px var(--font-mono);
   outline: none;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
 }
 
 .settings input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--bg-raised);
+}
+
+.settings input[type='password'] {
+  font-family: var(--font-sans);
+}
+
+/* wide spacing for the typed dots only, not the placeholder text */
+.settings input[type='password']:not(:placeholder-shown) {
+  letter-spacing: 0.12em;
+}
+
+/* secrets are masked on screen so a glance or screenshot can't capture them */
+.settings input.is-secret {
+  -webkit-text-security: disc;
 }
 
 .settings-help,
-.settings-error {
+.settings-error,
+.settings-success {
   margin: 0;
   font-size: 11px;
   color: var(--muted);
 }
 
 .settings-help code {
-  font: 11px ui-monospace, Menlo, monospace;
+  font: 10.5px var(--font-mono);
 }
 
 .settings-error {
   color: var(--danger);
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
   word-break: break-word;
+}
+
+.settings-error[hidden] {
+  display: none;
+}
+
+.settings-success {
+  color: var(--accent);
+  word-break: break-word;
+}
+
+.settings-success[hidden] {
+  display: none;
 }
 
 .settings-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
-.button-primary,
-.button-secondary {
-  padding: 6px 12px;
-  border-radius: 8px;
-  font: 600 12px system-ui, sans-serif;
-  cursor: pointer;
+/* vault lock screen: a composed state, not a bare form */
+
+.lock-figure {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: var(--space-2) auto 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
-.button-primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--bg);
+.lock-figure svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.button-primary:disabled {
-  opacity: 0.6;
-  cursor: progress;
+#vault-lock,
+#transfer-unlock {
+  text-align: center;
 }
 
-.button-secondary {
-  border: 1px solid var(--border);
+#vault-lock label,
+#transfer-unlock label {
+  font-size: 14px;
+}
+
+#vault-lock input,
+#transfer-unlock input {
+  text-align: center;
+}
+
+#vault-lock .settings-help,
+#transfer-unlock .settings-help {
+  text-align: center;
+}
+
+#vault-lock .settings-actions,
+#transfer-unlock .settings-actions {
+  justify-content: center;
+}
+
+#vault-lock .button-primary,
+#transfer-unlock .button-primary {
+  width: 100%;
+}
+
+/* --- status / empty state ---------------------------------------------------- */
+
+.status {
+  margin: 0 var(--space-4) var(--space-3);
+  padding: var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
   background: none;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.status.is-error {
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
   color: var(--text);
+  text-align: left;
+}
+
+.status strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--danger);
+}
+
+.status code {
+  display: block;
+  margin-top: var(--space-2);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font: 11px var(--font-mono);
+  word-break: break-all;
+  text-align: left;
 }
 
 .status .button-secondary {
-  margin-top: 8px;
+  margin-top: var(--space-2);
+}
+
+/* --- footer -------------------------------------------------------------------- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.db-label {
+  flex-shrink: 0;
+  max-width: 110px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 500 10px var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+
+.db-label:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.footer-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer b {
+  color: var(--text);
+  font-weight: 600;
 }
 
 kbd {
   padding: 1px 4px;
   border: 1px solid var(--border);
+  border-bottom-width: 2px;
   border-radius: 4px;
-  font: 10px ui-monospace, Menlo, monospace;
+  background: var(--surface);
+  font: 9.5px var(--font-mono);
+}
+
+/* --- transfer page (opens in a tab: file pickers close the popup) --------------- */
+
+body.is-page {
+  width: auto;
+  max-width: 440px;
+  margin: 32px auto;
+  padding: 0 var(--space-4);
+}
+
+body.is-page .header {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.transfer {
+  display: flex;
+  flex-direction: column;
+}
+
+.transfer .tabs,
+.transfer .settings,
+.transfer .status {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.page-title {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.page-lead {
+  margin: 0 0 var(--space-4);
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.steps {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.steps li {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+
+.steps span {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 700 10px var(--font-mono);
+}
+
+.transfer .settings label:not(.file-drop) {
+  margin-top: var(--space-1);
+}
+
+.transfer .settings label:first-child {
+  margin-top: 0;
+}
+
+.button-primary.is-wide {
+  width: 100%;
+}
+
+/* file picker: a large drop target instead of the browser's bare "Choose file" control */
+
+/* specific enough to beat `.settings input { width: 100% }` */
+.visually-hidden,
+.settings input.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.transfer .settings {
+  position: relative;
+}
+
+.file-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-5) var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--speed) var(--ease), background var(--speed) var(--ease);
+}
+
+.file-drop svg {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-drop:hover,
+.file-drop.is-dragging {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.file-drop:has(+ input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.file-drop.has-file {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.file-drop-title {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.file-drop-hint {
+  font-size: 11px;
+}
+
+/* result card after export/import */
+
+.result {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+}
+
+.result[hidden] {
+  display: none;
+}
+
+.result-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.result-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.result strong {
+  display: block;
+  font-size: 14px;
+}
+
+.result p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.result .result-warning {
+  margin-top: var(--space-2);
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.result .button-secondary {
+  margin-top: var(--space-3);
+}
+
+/* --- reduced motion -------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .row-wrap {
+    animation: none;
+  }
+
+  * {
+    transition-duration: 0ms !important;
+  }
 }
