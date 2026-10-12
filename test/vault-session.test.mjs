@@ -258,3 +258,41 @@ test('the session file never contains the vault key or accounts in plaintext', a
   assert.ok(!raw.includes(session.key.toString('hex')));
   assert.equal(statSync(`${session.vaultPath}.session`).mode & 0o777, 0o600);
 });
+
+const DB_URL = 'mongodb://admin:s3cret-pass@172.24.3.43:27017/hiren-chatomate?authSource=admin';
+
+test('the database URL is stored encrypted next to the vault and read back after unlock', async () => {
+  const { readFileSync, statSync } = await import('node:fs');
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  assert.equal(session.getDbUrl(), null);
+
+  session.saveDbUrl(DB_URL);
+  const raw = readFileSync(`${session.vaultPath}.db`, 'utf8');
+  assert.ok(!raw.includes('s3cret-pass') && !raw.includes('172.24.3.43') && !raw.includes('mongodb'), 'db file must be ciphertext only');
+  assert.equal(statSync(`${session.vaultPath}.db`).mode & 0o777, 0o600);
+
+  await session.handle({ type: 'vault.lock' });
+  assert.throws(() => session.getDbUrl(), /locked/i);
+  await session.handle({ type: 'vault.unlock', password: PASSWORD });
+  assert.equal(session.getDbUrl(), DB_URL);
+});
+
+test('changing the master password keeps the database URL readable', async () => {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  session.saveDbUrl(DB_URL);
+  await session.handle({ type: 'vault.changePassword', oldPassword: PASSWORD, newPassword: 'a brand new password' });
+  assert.equal(session.getDbUrl(), DB_URL);
+
+  await session.handle({ type: 'vault.lock' });
+  await session.handle({ type: 'vault.unlock', password: 'a brand new password' });
+  assert.equal(session.getDbUrl(), DB_URL);
+});
+
+test('saving the database URL needs an unlocked vault', async () => {
+  const session = makeSession();
+  await session.handle({ type: 'vault.create', password: PASSWORD });
+  await session.handle({ type: 'vault.lock' });
+  assert.throws(() => session.saveDbUrl(DB_URL), /locked/i);
+});

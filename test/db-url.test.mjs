@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assertAllowedDbUrl, loadAllowedHosts, maskDbUrl } from '../host/db-url.mjs';
+import { assertAllowedDbUrl, describeDbUrl, loadAllowedHosts, maskDbUrl } from '../host/db-url.mjs';
 
 const ALLOWED = ['localhost', '127.0.0.1', '172.24.3.43'];
 
@@ -55,4 +55,11 @@ test('always allows this machine, plus the hosts in allowed-hosts.json', () => {
   assert.ok(hosts.includes('localhost'));
   assert.ok(hosts.includes('127.0.0.1'));
   assert.ok(hosts.includes('172.24.3.43'));
+});
+
+test('describeDbUrl gives host and database only, never the credentials', () => {
+  const label = describeDbUrl('mongodb://admin:s3cret-pass@172.24.3.43:27017/hiren-chatomate?authSource=admin');
+  assert.deepEqual(label, { host: '172.24.3.43:27017', database: 'hiren-chatomate' });
+  assert.ok(!JSON.stringify(label).includes('s3cret-pass'));
+  assert.ok(!JSON.stringify(label).includes('admin:'));
 });

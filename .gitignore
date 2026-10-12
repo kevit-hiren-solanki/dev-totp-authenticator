@@ -4,3 +4,4 @@ host/run-host.sh
 # vault, session and export files must never be committed
 *.enc
 *.enc.session
+*.enc.db

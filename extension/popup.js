@@ -66,32 +66,13 @@ const state = {
   period: 30,
   expiresAt: 0,
   lastCopiedAt: {},
-  dbUrl: null,
+  db: { configured: false, host: '', database: '' },
   refreshing: null,
   refreshQueued: false,
   pendingDelete: null,
   currentHost: '',
   vault: { exists: false, unlocked: false },
 };
-
-/**
- * Asks the native host for the current codes in a database.
- * @param dbUrl - the Mongo URL to read from
- * @returns the host's reply with accounts, period and expiry
- */
-function fetchCodes(dbUrl) {
-  return sendToHost({ type: 'list', dbUrl });
-}
-
-/**
- * Splits a Mongo URL into host and database for display, leaving the credentials out.
- * @param dbUrl - the Mongo URL
- * @returns the host (with port) and database name
- */
-function describeDbUrl(dbUrl) {
-  const match = /^mongodb:\/\/(?:[^@/]*@)?([^/?]+)\/([^/?]+)/.exec(dbUrl);
-  return { host: match?.[1] ?? 'unknown host', database: match?.[2] ?? 'unknown database' };
-}
 
 /**
  * Formats a 6-digit code as two groups of three for easier reading.
@@ -443,8 +424,8 @@ async function runRefresh() {
   try {
     if (state.tab === 'vault') {
       await refreshVault();
-    } else if (state.dbUrl) {
-      applyReply(await fetchCodes(state.dbUrl));
+    } else {
+      await refreshDb();
     }
   } catch (err) {
     state.expiresAt = Number.POSITIVE_INFINITY;
@@ -476,9 +457,13 @@ function openSettings() {
   setCodesViewVisible(false);
   settingsEl.hidden = false;
   settingsToggleEl.setAttribute('aria-expanded', 'true');
-  settingsCancelEl.hidden = !state.dbUrl;
+  settingsCancelEl.hidden = !state.db.configured;
   settingsErrorEl.hidden = true;
-  dbUrlInputEl.value = state.dbUrl ?? DEFAULT_DB_URL;
+  // The stored URL is never sent back to the popup, so it can't be prefilled (or leak from here).
+  dbUrlInputEl.value = state.db.configured ? '' : DEFAULT_DB_URL;
+  dbUrlInputEl.placeholder = state.db.configured
+    ? `Now: ${state.db.database} on ${state.db.host}. Paste a new URL to replace it.`
+    : DEFAULT_DB_URL;
   dbUrlInputEl.focus();
   dbUrlInputEl.select();
 }
@@ -499,11 +484,104 @@ function closeSettings() {
  * @returns nothing
  */
 function renderDbLabel() {
-  dbLabelEl.hidden = state.tab !== 'db' || !state.dbUrl;
-  if (state.dbUrl) {
-    const { host, database } = describeDbUrl(state.dbUrl);
-    dbLabelEl.textContent = `db: ${database}`;
-    dbLabelEl.title = `${database} on ${host} — click to change`;
+  dbLabelEl.hidden = state.tab !== 'db' || !state.db.configured;
+  if (state.db.configured) {
+    dbLabelEl.textContent = `db: ${state.db.database}`;
+    dbLabelEl.title = `${state.db.database} on ${state.db.host} — click to change`;
+  }
+}
+
+/**
+ * Loads the database tab. The Mongo URL lives encrypted with the vault key, so the vault must be
+ * unlocked first (the six-hour session usually covers that).
+ * @returns resolves once codes, the unlock form or the settings are shown
+ */
+async function refreshDb() {
+  const vault = await vaultStatusWithResume();
+  // The shared unlock form reads this to choose "unlock" over "create".
+  state.vault = vault;
+  if (!vault.exists) {
+    showDbNeedsVault();
+    return;
+  }
+  if (!vault.unlocked) {
+    showVaultLockForm(false);
+    settingsToggleEl.hidden = true;
+    return;
+  }
+  hideVaultPanels();
+  settingsToggleEl.hidden = false;
+  state.db = await sendToHost({ type: 'db.status' });
+  if (!state.db.configured && !(await migrateLegacyDbUrl())) {
+    renderDbLabel();
+    openSettings();
+    return;
+  }
+  renderDbLabel();
+  if (!settingsEl.hidden) {
+    return;
+  }
+  setCodesViewVisible(true);
+  applyReply(await sendToHost({ type: 'db.list' }));
+}
+
+/**
+ * Explains that the database tab now needs a vault, with a shortcut to create one.
+ * @returns nothing
+ */
+function showDbNeedsVault() {
+  state.expiresAt = 0;
+  setCodesViewVisible(false);
+  settingsToggleEl.hidden = true;
+  statusEl.className = 'status';
+  statusEl.replaceChildren();
+  const text = document.createElement('span');
+  text.textContent =
+    'Your database URL can contain a password, so it is stored encrypted in your vault. Create the vault (one master password) to use this tab.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'button-primary';
+  button.textContent = 'Create vault';
+  button.addEventListener('click', () => setTab('vault'));
+  statusEl.append(text, button);
+  statusEl.hidden = false;
+}
+
+/**
+ * Moves a URL saved by an older version (in plain browser storage) into the encrypted vault file,
+ * then deletes the browser copy. If the move fails, the old copy is kept for the next try.
+ * @returns true when a legacy URL was migrated
+ */
+async function migrateLegacyDbUrl() {
+  let legacy;
+  try {
+    legacy = (await chrome.storage.local.get(DB_URL_KEY))[DB_URL_KEY];
+  } catch {
+    legacy = null;
+  }
+  if (!legacy) {
+    return false;
+  }
+  try {
+    const reply = await sendToHost({ type: 'db.save', dbUrl: legacy });
+    await removeLegacyDbUrl();
+    state.db = { configured: true, host: reply.host, database: reply.database };
+    return true;
+  } catch (err) {
+    console.warn('Could not move the saved database URL into the vault yet', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes the plain-text URL older versions kept in browser storage.
+ * @returns resolves once removed
+ */
+async function removeLegacyDbUrl() {
+  try {
+    await chrome.storage.local.remove(DB_URL_KEY);
+  } catch (err) {
+    console.warn('Could not remove the old database URL from browser storage', err);
   }
 }
 
@@ -518,9 +596,10 @@ async function saveSettings(event) {
   settingsSaveEl.disabled = true;
   settingsErrorEl.hidden = true;
   try {
-    const reply = await fetchCodes(dbUrl);
-    await chrome.storage.local.set({ [DB_URL_KEY]: dbUrl });
-    state.dbUrl = dbUrl;
+    const reply = await sendToHost({ type: 'db.save', dbUrl });
+    dbUrlInputEl.value = '';
+    await removeLegacyDbUrl();
+    state.db = { configured: true, host: reply.host, database: reply.database };
     renderDbLabel();
     closeSettings();
     applyReply(reply);
@@ -838,10 +917,6 @@ async function setTab(tab) {
   renderDbLabel();
   chrome.storage.local.set({ [TAB_KEY]: tab }).catch((err) => console.warn('Could not save the active tab', err));
 
-  if (tab === 'db' && !state.dbUrl) {
-    openSettings();
-    return;
-  }
   await refresh();
 }
 
@@ -882,7 +957,7 @@ settingsCancelEl.addEventListener('click', () => {
 settingsToggleEl.addEventListener('click', () => {
   if (settingsEl.hidden) {
     openSettings();
-  } else if (state.dbUrl) {
+  } else if (state.db.configured) {
     closeSettings();
     refresh();
   }
@@ -934,10 +1009,9 @@ async function readCurrentHost() {
   }
 }
 
-Promise.all([chrome.storage.local.get([LAST_COPIED_KEY, DB_URL_KEY, TAB_KEY]), readCurrentHost()])
+Promise.all([chrome.storage.local.get([LAST_COPIED_KEY, TAB_KEY]), readCurrentHost()])
   .then(([stored, currentHost]) => {
     state.lastCopiedAt = stored[LAST_COPIED_KEY] ?? {};
-    state.dbUrl = stored[DB_URL_KEY] ?? null;
     state.tab = stored[TAB_KEY] === 'vault' ? 'vault' : 'db';
     state.currentHost = currentHost;
   })

@@ -25,11 +25,12 @@ npm run setup
 
 1. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the `extension/` folder.
 2. Click the extension icon (or press **Alt+Shift+2**).
-3. On first open, enter your Mongo URL, including the database name, and click **Save & connect**. For example:
+3. Open the **Vault** tab and create your vault with a master password. The Database tab needs it too: your Mongo URL can contain a password, so it is stored encrypted with the vault key (`~/.config/dev-authenticator/vault.enc.db`), never in the browser.
+4. On the **Database** tab, enter your Mongo URL, including the database name, and click **Save & connect**. For example:
    - Local: `mongodb://localhost:27017/vezly`
    - Team dev server: `mongodb://<user>:<password>@172.24.3.43:27017/<your-db>?authSource=admin`
 
-The URL (including any password) is saved in this browser's extension storage on your machine. The popup never displays the password. Change it later from the database button in the header or the `db:` badge in the footer.
+The popup only ever shows the database name and host, never the password. Change it later from the database button in the header or the `db:` badge in the footer. Upgrading from 1.0.0? Your old saved URL moves into the vault automatically the first time you open the Database tab after unlocking, and is then deleted from browser storage.
 
 Only need staging/production accounts? Skip the Mongo URL and open the **Vault** tab.
 

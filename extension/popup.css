@@ -897,8 +897,13 @@ body.is-ending .code {
   text-align: left;
 }
 
-.status .button-secondary {
+.status .button-secondary,
+.status .button-primary {
   margin-top: var(--space-2);
+}
+
+.status > span {
+  display: block;
 }
 
 /* --- footer -------------------------------------------------------------------- */

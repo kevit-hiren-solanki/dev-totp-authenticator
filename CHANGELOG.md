@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Mongo URL encrypted:** the Database tab's URL (which may hold a password) is now stored sealed with the vault key next to the vault, never in browser storage; the popup sends it only when you save it and shows just host and database name. The old plain-text copy is migrated and deleted automatically. The Database tab now needs the vault unlocked.
 - **Alt+Shift+F quick fill:** fills and submits the code for the open site's single linked vault account, without opening the popup; falls back to the popup whenever there's any doubt.
 - **Use on another PC:** encrypted export/import of the vault (AES-256-GCM, scrypt), with the master password asked again before export, a 12-character minimum passphrase, merge-only import that skips duplicates, and strict validation of imported accounts.
 - Redesigned popup in GitHub's colors (dark and light), with bundled IBM Plex Sans and JetBrains Mono fonts.

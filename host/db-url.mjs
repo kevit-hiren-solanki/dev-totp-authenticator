@@ -45,3 +45,13 @@ export function assertAllowedDbUrl(dbUrl, allowedHosts) {
     );
   }
 }
+
+/**
+ * Splits a Mongo URL into host and database for display, leaving the credentials out.
+ * @param dbUrl - the Mongo connection string
+ * @returns the host (with port) and database name
+ */
+export function describeDbUrl(dbUrl) {
+  const match = /^mongodb:\/\/(?:[^@/]*@)?([^/?]+)\/([^/?]+)/.exec(String(dbUrl ?? ''));
+  return { host: match?.[1] ?? 'unknown host', database: match?.[2] ?? 'unknown database' };
+}

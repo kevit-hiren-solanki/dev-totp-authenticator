@@ -17,9 +17,11 @@ import {
   decryptExport,
   encryptExport,
   loadVaultWithKey,
+  readSealedFile,
   saveVault,
   unlockVault,
   vaultExists,
+  writeSealedFile,
 } from './vault.mjs';
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -401,14 +403,47 @@ export class VaultSession {
    */
   changePassword(oldPassword, newPassword) {
     assertPasswordStrength(newPassword);
+    // Side files are sealed with the vault key, which is about to change: read them with the old one.
+    const { key: oldKey } = unlockVault(this.vaultPath, String(oldPassword ?? ''));
+    const dbUrl = readSealedFile(this.dbPath(), oldKey);
     ({ key: this.key, accounts: this.accounts } = changeVaultPassword(
       this.vaultPath,
       String(oldPassword ?? ''),
       newPassword,
       ...(this.kdf ? [this.kdf] : []),
     ));
+    if (dbUrl) {
+      writeSealedFile(this.dbPath(), this.key, dbUrl);
+    }
     // The old session file wraps the old key; replace it so only the fresh token works.
     return { exists: true, unlocked: true, sessionToken: this.startSession() };
+  }
+
+  /**
+   * Stores the database tab's Mongo URL (it may contain a password), sealed with the vault key.
+   * @param dbUrl - the URL, already validated and tested by the caller
+   * @returns nothing
+   */
+  saveDbUrl(dbUrl) {
+    this.requireUnlocked();
+    writeSealedFile(this.dbPath(), this.key, { dbUrl });
+  }
+
+  /**
+   * Reads the stored Mongo URL.
+   * @returns the URL, or null when none has been saved
+   */
+  getDbUrl() {
+    this.requireUnlocked();
+    return readSealedFile(this.dbPath(), this.key)?.dbUrl ?? null;
+  }
+
+  /**
+   * The encrypted database-URL file's path, next to the vault.
+   * @returns the path
+   */
+  dbPath() {
+    return `${this.vaultPath}.db`;
   }
 
   /**

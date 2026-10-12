@@ -150,3 +150,69 @@ test('an export made by one host imports into another host, end-to-end', async (
     pcB.stop();
   }
 });
+
+// A database name that doesn't exist: reading `users` from it creates nothing in Mongo.
+const TEST_DB_URL = `mongodb://localhost:27017/devauth_test_${process.pid}`;
+
+test('the database URL is saved once, then codes are read without the popup ever sending it again', async () => {
+  const host = startHost();
+  try {
+    await host.send({ type: 'vault.create', password: PASSWORD });
+    const before = await host.send({ type: 'db.status' });
+    assert.deepEqual({ unlocked: before.message.unlocked, configured: before.message.configured }, { unlocked: true, configured: false });
+
+    const saved = await host.send({ type: 'db.save', dbUrl: TEST_DB_URL });
+    assert.equal(saved.message.ok, true, saved.message.error);
+    assert.deepEqual(saved.message.accounts, []);
+
+    const status = await host.send({ type: 'db.status' });
+    assert.deepEqual(
+      { configured: status.message.configured, host: status.message.host, database: status.message.database },
+      { configured: true, host: 'localhost:27017', database: `devauth_test_${process.pid}` },
+    );
+    assert.ok(!status.raw.includes('mongodb://'), 'status must not return the URL');
+
+    const listed = await host.send({ type: 'db.list' });
+    assert.equal(listed.message.ok, true, listed.message.error);
+  } finally {
+    host.stop();
+  }
+});
+
+test('a disallowed or unreachable database URL is never saved', async () => {
+  const host = startHost();
+  try {
+    await host.send({ type: 'vault.create', password: PASSWORD });
+    const refused = await host.send({ type: 'db.save', dbUrl: 'mongodb://user:pw@10.9.8.7:27017/prod' });
+    assert.equal(refused.message.ok, false);
+    assert.match(refused.message.error, /not allowed/);
+    assert.ok(!refused.raw.includes(':pw@'), 'errors must not echo the password');
+    assert.equal((await host.send({ type: 'db.status' })).message.configured, false);
+  } finally {
+    host.stop();
+  }
+});
+
+test('the database tab needs an unlocked vault', async () => {
+  const host = startHost();
+  try {
+    const status = await host.send({ type: 'db.status' });
+    assert.deepEqual({ exists: status.message.exists, unlocked: status.message.unlocked }, { exists: false, unlocked: false });
+    const listed = await host.send({ type: 'db.list' });
+    assert.equal(listed.message.ok, false);
+    assert.match(listed.message.error, /locked/i);
+  } finally {
+    host.stop();
+  }
+});
+
+test('the old plain-URL list request is gone', async () => {
+  const host = startHost();
+  try {
+    const reply = await host.send({ type: 'list', dbUrl: TEST_DB_URL });
+    assert.equal(reply.message.ok, false);
+    assert.match(reply.message.error, /unknown request type/i);
+  } finally {
+    host.stop();
+  }
+});

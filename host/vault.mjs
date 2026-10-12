@@ -144,6 +144,40 @@ function open(key, sealed, failureMessage) {
 }
 
 /**
+ * Writes a small JSON value next to the vault, sealed with the vault key (e.g. the database URL).
+ * Atomic write-then-rename with owner-only permissions, like the vault itself.
+ * @param path - the side file's path
+ * @param key - the vault key
+ * @param value - the value to store
+ * @returns nothing
+ */
+export function writeSealedFile(path, key, value) {
+  mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE });
+  const tempPath = join(dirname(path), `.sealed-${randomBytes(6).toString('hex')}.tmp`);
+  writeFileSync(tempPath, JSON.stringify({ v: 1, cipher: 'aes-256-gcm', ...seal(key, value) }), { mode: FILE_MODE });
+  renameSync(tempPath, path);
+}
+
+/**
+ * Reads a value written by writeSealedFile.
+ * @param path - the side file's path
+ * @param key - the vault key
+ * @returns the stored value, or null when the file doesn't exist
+ */
+export function readSealedFile(path, key) {
+  if (!existsSync(path)) {
+    return null;
+  }
+  let file;
+  try {
+    file = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    throw new Error(`Could not read ${path}: ${err.message}`);
+  }
+  return open(key, file, 'A file next to the vault is corrupted or was encrypted with a different key.');
+}
+
+/**
  * Encrypts accounts into a portable export file, under a key derived from the export passphrase
  * with a fresh salt. Nothing but the format marker and crypto parameters is readable.
  * @param accounts - the accounts to export (secrets included)

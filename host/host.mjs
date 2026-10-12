@@ -8,7 +8,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { MongoClient } from 'mongodb';
-import { assertAllowedDbUrl, loadAllowedHosts } from './db-url.mjs';
+import { assertAllowedDbUrl, describeDbUrl, loadAllowedHosts } from './db-url.mjs';
 import { generateTotp, periodEndsAt, TOTP_PERIOD_SECONDS } from './totp.mjs';
 import { VaultSession } from './vault-session.mjs';
 
@@ -129,15 +129,47 @@ async function handle(request) {
 }
 
 /**
- * Answers the database-tab request.
+ * Answers the database tab. The Mongo URL (which may hold a password) is stored encrypted with
+ * the vault key: the popup sends it once on save and never again, and replies only ever carry
+ * its host and database name.
  * @param request - the parsed message
- * @returns the accounts reply
+ * @returns the reply payload
  */
-function handleDbRequest(request) {
-  if (request.type !== 'list') {
-    throw new Error(`Unknown request type: ${request.type}`);
+async function handleDbRequest(request) {
+  switch (request.type) {
+    case 'db.status':
+      return dbStatus();
+    case 'db.save': {
+      vaultSession.requireUnlocked();
+      const dbUrl = String(request.dbUrl ?? '').trim();
+      // listAccounts validates the host against the allow-list and proves the URL works.
+      const reply = await listAccounts(dbUrl);
+      vaultSession.saveDbUrl(dbUrl);
+      return { ...reply, ...describeDbUrl(dbUrl) };
+    }
+    case 'db.list': {
+      const dbUrl = vaultSession.getDbUrl();
+      if (!dbUrl) {
+        throw new Error('No database saved yet. Enter your Mongo URL in the database settings.');
+      }
+      return listAccounts(dbUrl);
+    }
+    default:
+      throw new Error(`Unknown request type: ${request.type}`);
   }
-  return listAccounts(request.dbUrl);
+}
+
+/**
+ * Says whether the database tab can run: the vault must be unlocked and a URL saved.
+ * @returns vault state plus `configured`, and the host/database label when configured
+ */
+async function dbStatus() {
+  const status = await vaultSession.handle({ type: 'vault.status' });
+  if (!status.unlocked) {
+    return { ...status, configured: false };
+  }
+  const dbUrl = vaultSession.getDbUrl();
+  return dbUrl ? { ...status, configured: true, ...describeDbUrl(dbUrl) } : { ...status, configured: false };
 }
 
 /**
