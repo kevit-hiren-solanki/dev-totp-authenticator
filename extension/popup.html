@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dev Authenticator</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <h1>Dev Authenticator</h1>
+      </div>
+      <div class="header-actions">
+        <div class="timer" id="timer" aria-live="off">
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="timer-track" cx="18" cy="18" r="15" />
+            <circle class="timer-fill" id="timer-fill" cx="18" cy="18" r="15" />
+          </svg>
+          <span id="timer-seconds">--</span>
+        </div>
+        <button
+          type="button"
+          class="icon-button"
+          id="settings-toggle"
+          title="Database settings"
+          aria-label="Database settings"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
+            <path d="M4.5 5.5v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6" />
+            <path d="M4.5 11.5v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Code source">
+      <button type="button" class="tab" id="tab-db" role="tab" data-tab="db">Database</button>
+      <button type="button" class="tab" id="tab-vault" role="tab" data-tab="vault">Vault</button>
+    </nav>
+
+    <form id="settings" class="settings" hidden novalidate>
+      <label for="db-url">MongoDB URL</label>
+      <input
+        id="db-url"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="mongodb://localhost:27017/vezly"
+      />
+      <p class="settings-help">
+        Your local or team dev database, including its name. Allowed hosts:
+        <code>localhost</code>, <code>127.0.0.1</code> and the dev servers in
+        <code>host/allowed-hosts.json</code>. Saved in this browser only.
+      </p>
+      <p class="settings-error" id="settings-error" hidden></p>
+      <div class="settings-actions">
+        <button type="button" class="button-secondary" id="settings-cancel">
+          Cancel
+        </button>
+        <button type="submit" class="button-primary" id="settings-save">
+          Save &amp; connect
+        </button>
+      </div>
+    </form>
+
+    <form id="vault-lock" class="settings" hidden novalidate>
+      <label for="vault-password" id="vault-lock-title">Master password</label>
+      <input id="vault-password" type="password" autocomplete="off" />
+      <input id="vault-password-confirm" type="password" autocomplete="off" placeholder="Confirm master password" hidden />
+      <p class="settings-help" id="vault-lock-help">
+        Unlocks your encrypted vault of staging/production authenticator accounts. The vault
+        lives only on this machine, in <code>~/.config/dev-authenticator/vault.enc</code>.
+      </p>
+      <p class="settings-error" id="vault-lock-error" hidden></p>
+      <div class="settings-actions">
+        <button type="submit" class="button-primary" id="vault-lock-submit">Unlock</button>
+      </div>
+    </form>
+
+    <form id="vault-add" class="settings" hidden novalidate>
+      <label for="vault-add-input">Add account</label>
+      <button type="button" class="button-secondary" id="vault-scan">
+        Scan QR code on this screen
+      </button>
+      <input
+        id="vault-add-input"
+        class="is-secret"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="otpauth:// URI or base32 secret key"
+      />
+      <p class="settings-success" id="vault-add-scanned" hidden></p>
+      <input id="vault-add-label" type="text" autocomplete="off" placeholder="Label (e.g. admin@staging)" />
+      <input id="vault-add-issuer" type="text" autocomplete="off" placeholder="Issuer (optional, e.g. Vezly Staging)" />
+      <p class="settings-help">
+        Open the 2FA setup QR in this tab and scan it, or paste the setup key. The secret is
+        encrypted into the vault and never stored in the browser.
+      </p>
+      <p class="settings-error" id="vault-add-error" hidden></p>
+      <div class="settings-actions">
+        <button type="button" class="button-secondary" id="vault-add-cancel">Cancel</button>
+        <button type="submit" class="button-primary" id="vault-add-save">Add to vault</button>
+      </div>
+    </form>
+
+    <form id="vault-password-form" class="settings" hidden novalidate>
+      <label for="vault-old-password">Change master password</label>
+      <input id="vault-old-password" type="password" autocomplete="off" placeholder="Current password" />
+      <input id="vault-new-password" type="password" autocomplete="off" placeholder="New password (min 8 characters)" />
+      <input id="vault-new-password-confirm" type="password" autocomplete="off" placeholder="Confirm new password" />
+      <p class="settings-error" id="vault-password-error" hidden></p>
+      <div class="settings-actions">
+        <button type="button" class="button-secondary" id="vault-password-cancel">Cancel</button>
+        <button type="submit" class="button-primary" id="vault-password-save">Change password</button>
+      </div>
+    </form>
+
+    <div class="vault-actions" id="vault-actions" hidden>
+      <button type="button" class="button-secondary" id="vault-add-toggle">+ Add account</button>
+      <span class="vault-actions-spacer"></span>
+      <button type="button" class="icon-button" id="vault-change-password" title="Change master password" aria-label="Change master password">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="8" cy="15" r="4" />
+          <path d="M11 12 20 3" />
+          <path d="M16 7l3 3" />
+        </svg>
+      </button>
+      <button type="button" class="icon-button" id="vault-lock-now" title="Lock vault" aria-label="Lock vault">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="9" rx="2" />
+          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="search" id="search-wrap">
+      <input
+        id="search"
+        type="search"
+        placeholder="Search name or email"
+        autocomplete="off"
+        spellcheck="false"
+        autofocus
+      />
+    </div>
+
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <section id="status" class="status" hidden></section>
+
+    <footer class="footer">
+      <span>Click a code to copy · <kbd>Enter</kbd> copies the first</span>
+      <button
+        type="button"
+        class="db-label"
+        id="db-label"
+        title="Change database"
+      ></button>
+    </footer>
+
+    <template id="row-template">
+      <div class="row-wrap">
+        <button type="button" class="row">
+          <span class="who">
+            <span class="name"></span>
+            <span class="email"></span>
+          </span>
+          <span class="code-wrap">
+            <span class="code"></span>
+            <span class="copied">Copied</span>
+          </span>
+        </button>
+        <button type="button" class="icon-button row-fill" title="Fill &amp; verify on this page (Shift+click: fill only)" aria-label="Fill and verify code on this page">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 12h12" />
+            <path d="M11 8l4 4-4 4" />
+            <path d="M20 5v14" />
+          </svg>
+        </button>
+      </div>
+    </template>
+
+    <template id="vault-row-template">
+      <div class="row-wrap">
+        <button type="button" class="row">
+          <span class="who">
+            <span class="name"></span>
+            <span class="email"></span>
+          </span>
+          <span class="code-wrap">
+            <span class="code"></span>
+            <span class="copied">Copied</span>
+          </span>
+        </button>
+        <button type="button" class="icon-button row-fill" title="Fill &amp; verify on this page (Shift+click: fill only)" aria-label="Fill and verify code on this page">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 12h12" />
+            <path d="M11 8l4 4-4 4" />
+            <path d="M20 5v14" />
+          </svg>
+        </button>
+        <button type="button" class="icon-button row-delete" title="Remove from vault" aria-label="Remove from vault">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 7h14" />
+            <path d="M9 7V5h6v2" />
+            <path d="M7 7l1 13h8l1-13" />
+          </svg>
+        </button>
+        <div class="row-confirm" role="alertdialog" hidden>
+          <span class="row-confirm-text">Remove <strong class="row-confirm-name"></strong>?</span>
+          <button type="button" class="button-secondary row-confirm-cancel">Cancel</button>
+          <button type="button" class="button-danger row-confirm-remove">Remove</button>
+        </div>
+      </div>
+    </template>
+
+    <script src="vendor/jsqr.js"></script>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

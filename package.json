@@ -1,0 +1,22 @@
+{
+  "name": "dev-authenticator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension showing live 2FA codes from your dev database or an encrypted personal vault, with one-click autofill.",
+  "type": "module",
+  "scripts": {
+    "setup": "node install.mjs",
+    "uninstall-host": "node install.mjs --uninstall",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mongodb": "^6.10.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "jsqr": "^1.4.0"
+  }
+}

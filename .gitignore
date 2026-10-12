@@ -1,0 +1,6 @@
+node_modules/
+host/run-host.sh
+.playwright-mcp/
+# vault, session and export files must never be committed
+*.enc
+*.enc.session

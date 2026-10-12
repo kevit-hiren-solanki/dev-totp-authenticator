@@ -1,0 +1,1057 @@
+import { fillOtpCode } from './fill-otp.js';
+
+const HOST_NAME = 'com.vezly.dev_totp';
+const DEFAULT_DB_URL = 'mongodb://localhost:27017/vezly';
+const TICK_MS = 250;
+const ENDING_SECONDS = 5;
+const COPIED_FLASH_MS = 900;
+const TIMER_CIRCUMFERENCE = 94.25;
+const LAST_COPIED_KEY = 'lastCopiedAt';
+const DB_URL_KEY = 'dbUrl';
+const TAB_KEY = 'activeTab';
+const HOST_MISSING_PATTERN = /not found|forbidden|exited/i;
+const QR_SCAN_WIDTHS = [1200, 2000];
+const QR_SCAN_TIMEOUT_MS = 15000;
+const SESSION_TOKEN_KEY = 'vaultSessionToken';
+const REQUEST_TIMEOUT_MS = 20000;
+// A code with less life than this may expire before the user presses Verify.
+const MIN_FILL_LIFETIME_MS = 3000;
+
+const listEl = document.getElementById('list');
+const statusEl = document.getElementById('status');
+const searchWrapEl = document.getElementById('search-wrap');
+const searchEl = document.getElementById('search');
+const timerEl = document.getElementById('timer');
+const timerFillEl = document.getElementById('timer-fill');
+const timerSecondsEl = document.getElementById('timer-seconds');
+const rowTemplate = document.getElementById('row-template');
+const vaultRowTemplate = document.getElementById('vault-row-template');
+const settingsToggleEl = document.getElementById('settings-toggle');
+const settingsEl = document.getElementById('settings');
+const dbUrlInputEl = document.getElementById('db-url');
+const settingsErrorEl = document.getElementById('settings-error');
+const settingsCancelEl = document.getElementById('settings-cancel');
+const settingsSaveEl = document.getElementById('settings-save');
+const dbLabelEl = document.getElementById('db-label');
+const tabEls = [...document.querySelectorAll('.tab')];
+const vaultLockEl = document.getElementById('vault-lock');
+const vaultLockTitleEl = document.getElementById('vault-lock-title');
+const vaultPasswordEl = document.getElementById('vault-password');
+const vaultPasswordConfirmEl = document.getElementById('vault-password-confirm');
+const vaultLockHelpEl = document.getElementById('vault-lock-help');
+const vaultLockErrorEl = document.getElementById('vault-lock-error');
+const vaultLockSubmitEl = document.getElementById('vault-lock-submit');
+const vaultActionsEl = document.getElementById('vault-actions');
+const vaultAddToggleEl = document.getElementById('vault-add-toggle');
+const vaultChangePasswordEl = document.getElementById('vault-change-password');
+const vaultLockNowEl = document.getElementById('vault-lock-now');
+const vaultAddEl = document.getElementById('vault-add');
+const vaultScanEl = document.getElementById('vault-scan');
+const vaultAddInputEl = document.getElementById('vault-add-input');
+const vaultAddLabelEl = document.getElementById('vault-add-label');
+const vaultAddIssuerEl = document.getElementById('vault-add-issuer');
+const vaultAddErrorEl = document.getElementById('vault-add-error');
+const vaultAddScannedEl = document.getElementById('vault-add-scanned');
+const vaultAddCancelEl = document.getElementById('vault-add-cancel');
+const vaultAddSaveEl = document.getElementById('vault-add-save');
+const vaultPasswordFormEl = document.getElementById('vault-password-form');
+const vaultOldPasswordEl = document.getElementById('vault-old-password');
+const vaultNewPasswordEl = document.getElementById('vault-new-password');
+const vaultNewPasswordConfirmEl = document.getElementById('vault-new-password-confirm');
+const vaultPasswordErrorEl = document.getElementById('vault-password-error');
+const vaultPasswordCancelEl = document.getElementById('vault-password-cancel');
+
+const state = {
+  tab: 'db',
+  accounts: [],
+  period: 30,
+  expiresAt: 0,
+  lastCopiedAt: {},
+  dbUrl: null,
+  refreshing: null,
+  refreshQueued: false,
+  pendingDelete: null,
+  vault: { exists: false, unlocked: false },
+};
+
+const pendingRequests = new Map();
+let nextRequestId = 1;
+let port = null;
+
+/**
+ * Opens the native host; Chrome starts it and keeps it alive while the popup is open.
+ * @returns nothing
+ */
+function connect() {
+  port = chrome.runtime.connectNative(HOST_NAME);
+  port.onMessage.addListener((message) => {
+    const request = pendingRequests.get(message.id);
+    if (!request) {
+      return;
+    }
+    pendingRequests.delete(message.id);
+    if (message.ok) {
+      request.resolve(message);
+    } else {
+      request.reject(new Error(message.error));
+    }
+  });
+  port.onDisconnect.addListener(() => {
+    const reason = chrome.runtime.lastError?.message ?? 'The native host exited.';
+    port = null;
+    for (const request of pendingRequests.values()) {
+      request.reject(new Error(reason));
+    }
+    pendingRequests.clear();
+  });
+}
+
+/**
+ * Sends one request to the native host and resolves with its reply.
+ * @param payload - the message, minus the id this function assigns
+ * @returns the host's reply
+ */
+function sendToHost(payload) {
+  if (!port) {
+    connect();
+  }
+  return new Promise((resolve, reject) => {
+    const id = nextRequestId++;
+    // A reply that never arrives must fail loudly, not leave a button spinning forever.
+    const timer = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error('The native host did not answer in time. Close and reopen the popup.'));
+    }, REQUEST_TIMEOUT_MS);
+    pendingRequests.set(id, {
+      resolve: (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    });
+    // Envelope id last so a payload field can never replace it.
+    port.postMessage({ ...payload, id });
+  });
+}
+
+/**
+ * Asks the native host for the current codes in a database.
+ * @param dbUrl - the Mongo URL to read from
+ * @returns the host's reply with accounts, period and expiry
+ */
+function fetchCodes(dbUrl) {
+  return sendToHost({ type: 'list', dbUrl });
+}
+
+/**
+ * Splits a Mongo URL into host and database for display, leaving the credentials out.
+ * @param dbUrl - the Mongo URL
+ * @returns the host (with port) and database name
+ */
+function describeDbUrl(dbUrl) {
+  const match = /^mongodb:\/\/(?:[^@/]*@)?([^/?]+)\/([^/?]+)/.exec(dbUrl);
+  return { host: match?.[1] ?? 'unknown host', database: match?.[2] ?? 'unknown database' };
+}
+
+/**
+ * Formats a 6-digit code as two groups of three for easier reading.
+ * @param code - the raw code
+ * @returns the grouped code
+ */
+function formatCode(code) {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
+/**
+ * The two lines shown for an account: DB accounts have name/email, vault accounts label/issuer.
+ * @param account - the account from either source
+ * @returns primary and secondary display text
+ */
+function describeAccount(account) {
+  if (state.tab === 'vault') {
+    return { primary: account.label || account.issuer, secondary: account.issuer };
+  }
+  return { primary: account.name || account.email, secondary: account.email };
+}
+
+/**
+ * Returns the accounts matching the search box, most recently copied first.
+ * @returns the accounts to show
+ */
+function getVisibleAccounts() {
+  const query = searchEl.value.trim().toLowerCase();
+  const copyKey = (account) => account.email ?? account.id;
+  return state.accounts
+    .filter((account) => {
+      const { primary, secondary } = describeAccount(account);
+      return !query || `${primary} ${secondary}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => (state.lastCopiedAt[copyKey(b)] ?? 0) - (state.lastCopiedAt[copyKey(a)] ?? 0));
+}
+
+/**
+ * Copies an account's current code and flashes the row.
+ * @param account - the account whose code to copy
+ * @param row - the row element to flash
+ * @returns resolves once the code is on the clipboard
+ */
+async function copyCode(account, row) {
+  try {
+    await navigator.clipboard.writeText(account.code);
+  } catch (err) {
+    showError('Could not copy to the clipboard.', err.message);
+    return;
+  }
+  row.classList.add('is-copied');
+  setTimeout(() => row.classList.remove('is-copied'), COPIED_FLASH_MS);
+
+  state.lastCopiedAt[account.email ?? account.id] = Date.now();
+  // Ordering is a convenience; a failed write only loses the sort order.
+  chrome.storage.local
+    .set({ [LAST_COPIED_KEY]: state.lastCopiedAt })
+    .catch((err) => console.warn('Could not save copy order', err));
+}
+
+/**
+ * Builds one clickable account row for the database tab.
+ * @param account - the account to show
+ * @returns the row element
+ */
+function buildRow(account) {
+  const wrap = rowTemplate.content.firstElementChild.cloneNode(true);
+  const row = wrap.querySelector('.row');
+  const { primary, secondary } = describeAccount(account);
+  row.querySelector('.name').textContent = primary;
+  row.querySelector('.email').textContent = secondary;
+  row.querySelector('.code').textContent = formatCode(account.code);
+  row.title = `Copy code for ${secondary || primary}`;
+  row.classList.toggle('is-disabled', !account.enabled);
+  row.addEventListener('click', () => copyCode(account, row));
+  wireFillButton(wrap, account);
+  return wrap;
+}
+
+/**
+ * Connects a row's fill button, which types the current code into the page in this tab.
+ * @param wrap - the row wrapper holding `.row` and `.row-fill`
+ * @param account - the account whose code to fill
+ * @returns nothing
+ */
+function wireFillButton(wrap, account) {
+  const fillEl = wrap.querySelector('.row-fill');
+  fillEl.addEventListener('click', (event) =>
+    fillIntoPage(account, fillEl, wrap.querySelector('.row'), { submit: !event.shiftKey }),
+  );
+}
+
+/**
+ * Returns a code with enough life left to be submitted, waiting for the next one if the
+ * current code is about to expire.
+ * @param account - the account as rendered
+ * @returns the code to fill
+ */
+async function freshCode(account) {
+  const remainingMs = state.expiresAt - Date.now();
+  if (remainingMs >= MIN_FILL_LIFETIME_MS) {
+    return account.code;
+  }
+  await new Promise((resolve) => setTimeout(resolve, Math.max(remainingMs, 0) + 150));
+  await refresh();
+  const key = account.email ?? account.id;
+  return state.accounts.find((candidate) => (candidate.email ?? candidate.id) === key)?.code ?? account.code;
+}
+
+/**
+ * Injects the code into the active tab's 2FA field and closes the popup. Only the 6-digit
+ * code reaches the page, and only on this explicit click. Falls back to copying when the page
+ * has no recognisable code field or can't be scripted (e.g. chrome:// pages).
+ * @param account - the account whose code to fill
+ * @param fillEl - the clicked fill button, spinning meanwhile
+ * @param row - the row, flashed "Copied" on fallback
+ * @param options - `submit`: also press the page's Verify button (Shift+click turns it off)
+ * @returns resolves once filled or the fallback message is shown
+ */
+async function fillIntoPage(account, fillEl, row, options) {
+  if (fillEl.classList.contains('is-busy')) {
+    return;
+  }
+  fillEl.classList.add('is-busy');
+  fillEl.disabled = true;
+  let reason = 'No 2FA code field found on this page.';
+  try {
+    const code = await freshCode(account);
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (await injectFill(tab, code, options)) {
+      window.close();
+      return;
+    }
+    account = { ...account, code };
+  } catch (err) {
+    reason = `This page can't be filled (${err.message}).`;
+  } finally {
+    fillEl.classList.remove('is-busy');
+    fillEl.disabled = false;
+  }
+  await copyCode(account, row);
+  showMessage(`${reason} The code was copied instead — paste it with Ctrl+V.`);
+}
+
+/**
+ * Runs the fill function in every frame of the tab (login forms often sit in an iframe),
+ * retrying in the top frame alone if some frame can't be scripted.
+ * @param tab - the active tab
+ * @param code - the code to type
+ * @param options - passed through to fillOtpCode (`submit`)
+ * @returns true when some frame found and filled a code field
+ */
+async function injectFill(tab, code, options) {
+  if (!tab?.id) {
+    throw new Error('no active tab');
+  }
+  const run = (allFrames) =>
+    chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames }, func: fillOtpCode, args: [code, options] });
+  let results;
+  try {
+    results = await run(true);
+  } catch {
+    results = await run(false);
+  }
+  return results.some((frame) => frame.result?.filled);
+}
+
+/**
+ * Builds one vault row: the clickable code plus a two-step remove button.
+ * @param account - the vault account to show
+ * @returns the row wrapper element
+ */
+function buildVaultRow(account) {
+  const wrap = vaultRowTemplate.content.firstElementChild.cloneNode(true);
+  const row = wrap.querySelector('.row');
+  const { primary, secondary } = describeAccount(account);
+  row.querySelector('.name').textContent = primary;
+  row.querySelector('.email').textContent = secondary;
+  row.querySelector('.code').textContent = formatCode(account.code);
+  row.title = `Copy code for ${primary}`;
+  row.addEventListener('click', () => copyCode(account, row));
+  wireFillButton(wrap, account);
+
+  const confirmEl = wrap.querySelector('.row-confirm');
+  const cancelEl = confirmEl.querySelector('.row-confirm-cancel');
+  confirmEl.querySelector('.row-confirm-name').textContent = primary;
+  wrap.querySelector('.row-delete').addEventListener('click', () => {
+    state.pendingDelete = { id: account.id, removing: false };
+    confirmEl.hidden = false;
+    cancelEl.focus();
+  });
+  cancelEl.addEventListener('click', () => closeDeleteConfirm(wrap));
+  confirmEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !state.pendingDelete?.removing) {
+      event.stopPropagation();
+      closeDeleteConfirm(wrap);
+    }
+  });
+  confirmEl.querySelector('.row-confirm-remove').addEventListener('click', () => removeVaultAccount(account, wrap));
+
+  // The list is rebuilt every 30s; restore an open confirmation so it doesn't vanish mid-delete.
+  if (state.pendingDelete?.id === account.id) {
+    confirmEl.hidden = false;
+    if (state.pendingDelete.removing) {
+      markRemoving(wrap);
+    }
+  }
+  return wrap;
+}
+
+/**
+ * Hides a row's remove confirmation and returns focus to its delete button.
+ * @param wrap - the row wrapper
+ * @returns nothing
+ */
+function closeDeleteConfirm(wrap) {
+  state.pendingDelete = null;
+  wrap.querySelector('.row-confirm').hidden = true;
+  wrap.querySelector('.row-delete').focus();
+}
+
+/**
+ * Shows a row's confirmation as in progress: dimmed, Cancel disabled, Remove spinning.
+ * @param wrap - the row wrapper
+ * @returns nothing
+ */
+function markRemoving(wrap) {
+  wrap.classList.add('is-removing');
+  wrap.querySelector('.row-confirm-cancel').disabled = true;
+  setBusy(wrap.querySelector('.row-confirm-remove'), 'Removing…');
+}
+
+/**
+ * Removes a vault account after the user confirmed. The pending state lives in `state`, so a
+ * list rebuild during the request keeps showing progress; the list is re-rendered either way.
+ * @param account - the vault account to remove
+ * @param wrap - the row wrapper clicked
+ * @returns resolves once removed or the error is shown
+ */
+async function removeVaultAccount(account, wrap) {
+  if (state.pendingDelete?.removing) {
+    return;
+  }
+  state.pendingDelete = { id: account.id, removing: true };
+  markRemoving(wrap);
+  try {
+    await sendToHost({ type: 'vault.remove', accountId: account.id });
+    state.accounts = state.accounts.filter((existing) => existing.id !== account.id);
+    state.pendingDelete = null;
+    renderList();
+  } catch (err) {
+    state.pendingDelete = null;
+    renderList();
+    showError('Could not remove the account', err.message);
+  }
+}
+
+/**
+ * Re-renders the account list for the current search.
+ * @returns nothing
+ */
+function renderList() {
+  const accounts = getVisibleAccounts();
+  listEl.replaceChildren(...accounts.map(state.tab === 'vault' ? buildVaultRow : buildRow));
+
+  if (state.accounts.length === 0) {
+    showMessage(
+      state.tab === 'vault'
+        ? 'The vault is empty. Add your staging/production accounts with “+ Add account”.'
+        : 'No accounts with an authenticator secret in this database. Enroll 2FA (scan the QR) on an account first.',
+    );
+  } else if (accounts.length === 0) {
+    showMessage(`No account matches “${searchEl.value.trim()}”.`);
+  } else {
+    statusEl.hidden = true;
+  }
+}
+
+/**
+ * Shows a neutral message in the status box.
+ * @param text - the message to show
+ * @returns nothing
+ */
+function showMessage(text) {
+  statusEl.className = 'status';
+  statusEl.textContent = text;
+  statusEl.hidden = false;
+}
+
+/**
+ * Shows an error with the next step: the setup command if the host is missing, else a way to change the database.
+ * @param title - the headline
+ * @param detail - the underlying error message
+ * @returns nothing
+ */
+function showError(title, detail) {
+  statusEl.className = 'status is-error';
+  statusEl.replaceChildren();
+
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  const text = document.createElement('span');
+  text.textContent = detail;
+  statusEl.append(heading, text);
+
+  if (HOST_MISSING_PATTERN.test(detail)) {
+    const hint = document.createElement('code');
+    hint.textContent = 'cd totp-athenticator && npm install && npm run setup';
+    statusEl.append(hint);
+  } else if (state.tab === 'db') {
+    const change = document.createElement('button');
+    change.type = 'button';
+    change.className = 'button-secondary';
+    change.textContent = 'Change database';
+    change.addEventListener('click', () => openSettings());
+    statusEl.append(change);
+  }
+  statusEl.hidden = false;
+}
+
+/**
+ * Stores a successful reply and redraws the list.
+ * @param reply - the host's reply
+ * @returns nothing
+ */
+function applyReply(reply) {
+  state.accounts = reply.accounts;
+  state.period = reply.period;
+  state.expiresAt = reply.expiresAt;
+  renderList();
+}
+
+/**
+ * Fetches fresh codes for the active tab: the saved database, or the unlocked vault.
+ * @returns resolves once the list is re-rendered
+ */
+async function refresh() {
+  // A refresh asked for mid-flight (e.g. right after an add) must still run, not be dropped.
+  if (state.refreshing) {
+    state.refreshQueued = true;
+    return state.refreshing;
+  }
+  state.refreshing = runRefresh().finally(() => {
+    state.refreshing = null;
+    if (state.refreshQueued) {
+      state.refreshQueued = false;
+      refresh();
+    }
+  });
+  return state.refreshing;
+}
+
+/**
+ * Performs one refresh of the active tab.
+ * @returns resolves once the list or error is shown
+ */
+async function runRefresh() {
+  try {
+    if (state.tab === 'vault') {
+      await refreshVault();
+    } else if (state.dbUrl) {
+      applyReply(await fetchCodes(state.dbUrl));
+    }
+  } catch (err) {
+    state.expiresAt = Number.POSITIVE_INFINITY;
+    listEl.replaceChildren();
+    showError('Could not load codes', err.message);
+  }
+}
+
+/**
+ * Shows or hides the code list, search and timer.
+ * @param visible - whether the codes view should show
+ * @returns nothing
+ */
+function setCodesViewVisible(visible) {
+  searchWrapEl.hidden = !visible;
+  listEl.hidden = !visible;
+  timerEl.hidden = !visible;
+  if (!visible) {
+    statusEl.hidden = true;
+  }
+}
+
+/**
+ * Opens the database settings, pausing code refresh while it is open.
+ * @returns nothing
+ */
+function openSettings() {
+  state.expiresAt = 0;
+  setCodesViewVisible(false);
+  settingsEl.hidden = false;
+  settingsToggleEl.setAttribute('aria-expanded', 'true');
+  settingsCancelEl.hidden = !state.dbUrl;
+  settingsErrorEl.hidden = true;
+  dbUrlInputEl.value = state.dbUrl ?? DEFAULT_DB_URL;
+  dbUrlInputEl.focus();
+  dbUrlInputEl.select();
+}
+
+/**
+ * Closes the settings and goes back to the codes.
+ * @returns nothing
+ */
+function closeSettings() {
+  settingsEl.hidden = true;
+  settingsToggleEl.setAttribute('aria-expanded', 'false');
+  setCodesViewVisible(true);
+  searchEl.focus();
+}
+
+/**
+ * Updates the footer badge with the saved database name.
+ * @returns nothing
+ */
+function renderDbLabel() {
+  dbLabelEl.hidden = state.tab !== 'db' || !state.dbUrl;
+  if (state.dbUrl) {
+    const { host, database } = describeDbUrl(state.dbUrl);
+    dbLabelEl.textContent = `db: ${database}`;
+    dbLabelEl.title = `${database} on ${host} — click to change`;
+  }
+}
+
+/**
+ * Connects to the entered database and saves it only if the host could read codes from it.
+ * @param event - the form submit event
+ * @returns resolves once saved or the error is shown
+ */
+async function saveSettings(event) {
+  event.preventDefault();
+  const dbUrl = dbUrlInputEl.value.trim();
+  settingsSaveEl.disabled = true;
+  settingsErrorEl.hidden = true;
+  try {
+    const reply = await fetchCodes(dbUrl);
+    await chrome.storage.local.set({ [DB_URL_KEY]: dbUrl });
+    state.dbUrl = dbUrl;
+    renderDbLabel();
+    closeSettings();
+    applyReply(reply);
+  } catch (err) {
+    settingsErrorEl.textContent = HOST_MISSING_PATTERN.test(err.message)
+      ? `${err.message} Run: npm install && npm run setup`
+      : err.message;
+    settingsErrorEl.hidden = false;
+  } finally {
+    settingsSaveEl.disabled = false;
+  }
+}
+
+/**
+ * Hides every vault panel (lock, add, change-password, actions bar).
+ * @returns nothing
+ */
+function hideVaultPanels() {
+  vaultLockEl.hidden = true;
+  vaultAddEl.hidden = true;
+  vaultPasswordFormEl.hidden = true;
+  vaultActionsEl.hidden = true;
+}
+
+/**
+ * Shows the master password form, in create mode for a brand-new vault.
+ * @param creating - whether the vault does not exist yet
+ * @returns nothing
+ */
+function showVaultLockForm(creating) {
+  state.expiresAt = 0;
+  state.accounts = [];
+  setCodesViewVisible(false);
+  hideVaultPanels();
+  vaultLockEl.hidden = false;
+  vaultLockTitleEl.textContent = creating ? 'Create your vault' : 'Master password';
+  vaultLockSubmitEl.textContent = creating ? 'Create vault' : 'Unlock';
+  vaultPasswordConfirmEl.hidden = !creating;
+  vaultLockHelpEl.hidden = !creating;
+  vaultLockErrorEl.hidden = true;
+  vaultPasswordEl.value = '';
+  vaultPasswordConfirmEl.value = '';
+  vaultPasswordEl.placeholder = creating ? 'Master password (min 8 characters)' : '';
+  vaultPasswordEl.focus();
+}
+
+/**
+ * Reads the unlock session token from browser session memory (cleared when the browser closes).
+ * @returns the token, or null
+ */
+async function readSessionToken() {
+  try {
+    return (await chrome.storage.session.get(SESSION_TOKEN_KEY))[SESSION_TOKEN_KEY] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores or clears the unlock session token.
+ * @param token - the token from the host, or null to clear it
+ * @returns resolves once stored
+ */
+async function writeSessionToken(token) {
+  try {
+    if (token) {
+      await chrome.storage.session.set({ [SESSION_TOKEN_KEY]: token });
+    } else {
+      await chrome.storage.session.remove(SESSION_TOKEN_KEY);
+    }
+  } catch (err) {
+    console.warn('Could not store the unlock session', err);
+  }
+}
+
+/**
+ * Loads the vault tab: resumes the six-hour unlock session if one is running,
+ * shows the password form otherwise, then the live codes.
+ * @returns resolves once the right view is shown
+ */
+async function refreshVault() {
+  state.vault = await sendToHost({ type: 'vault.status' });
+  if (!state.vault.unlocked && state.vault.exists) {
+    const token = await readSessionToken();
+    if (token) {
+      try {
+        await sendToHost({ type: 'vault.resume', sessionToken: token });
+        state.vault.unlocked = true;
+      } catch {
+        await writeSessionToken(null);
+      }
+    }
+  }
+  if (!state.vault.unlocked) {
+    showVaultLockForm(!state.vault.exists);
+    return;
+  }
+  hideVaultPanels();
+  vaultActionsEl.hidden = false;
+  setCodesViewVisible(true);
+  applyReply(await sendToHost({ type: 'vault.list' }));
+}
+
+/**
+ * Creates or unlocks the vault with the typed master password.
+ * @param event - the form submit event
+ * @returns resolves once unlocked or the error is shown
+ */
+async function submitVaultLock(event) {
+  event.preventDefault();
+  const creating = !state.vault.exists;
+  if (creating && vaultPasswordEl.value !== vaultPasswordConfirmEl.value) {
+    vaultLockErrorEl.textContent = 'The passwords do not match.';
+    vaultLockErrorEl.hidden = false;
+    return;
+  }
+  vaultLockErrorEl.hidden = true;
+  const done = setBusy(vaultLockSubmitEl, creating ? 'Creating…' : 'Unlocking…');
+  try {
+    const reply = await sendToHost({ type: creating ? 'vault.create' : 'vault.unlock', password: vaultPasswordEl.value });
+    await writeSessionToken(reply.sessionToken ?? null);
+    vaultPasswordEl.value = '';
+    vaultPasswordConfirmEl.value = '';
+    await refresh();
+  } catch (err) {
+    vaultLockErrorEl.textContent = err.message;
+    vaultLockErrorEl.hidden = false;
+    vaultPasswordEl.focus();
+    vaultPasswordEl.select();
+  } finally {
+    done();
+  }
+}
+
+/**
+ * Disables a button and swaps its label while work runs, so busy never looks like stuck.
+ * @param button - the button to mark busy
+ * @param busyText - the label to show meanwhile
+ * @returns a function that restores the button
+ */
+function setBusy(button, busyText) {
+  const idleText = button.textContent;
+  button.disabled = true;
+  button.classList.add('is-busy');
+  button.textContent = busyText;
+  return () => {
+    button.disabled = false;
+    button.classList.remove('is-busy');
+    button.textContent = idleText;
+  };
+}
+
+/**
+ * Opens the add-account panel.
+ * @returns nothing
+ */
+function openVaultAdd() {
+  state.expiresAt = 0;
+  setCodesViewVisible(false);
+  hideVaultPanels();
+  vaultAddEl.hidden = false;
+  vaultAddErrorEl.hidden = true;
+  vaultAddScannedEl.hidden = true;
+  vaultAddInputEl.value = '';
+  vaultAddLabelEl.value = '';
+  vaultAddIssuerEl.value = '';
+  vaultAddInputEl.focus();
+}
+
+/**
+ * Sends the new account to the host, which validates it before anything is stored.
+ * @param event - the form submit event
+ * @returns resolves once added or the error is shown
+ */
+async function submitVaultAdd(event) {
+  event.preventDefault();
+  const input = vaultAddInputEl.value.trim();
+  const payload = {
+    type: 'vault.add',
+    ...(input.startsWith('otpauth://') ? { otpauthUri: input } : { secret: input }),
+    // Typed values override the QR's own; the host keeps the QR's when these are blank.
+    label: vaultAddLabelEl.value.trim(),
+    issuer: vaultAddIssuerEl.value.trim(),
+  };
+  vaultAddErrorEl.hidden = true;
+  const done = setBusy(vaultAddSaveEl, 'Adding…');
+  try {
+    await sendToHost(payload);
+    // The secret must not linger in the DOM once it is in the vault.
+    vaultAddInputEl.value = '';
+    vaultAddLabelEl.value = '';
+    vaultAddIssuerEl.value = '';
+    await refresh();
+  } catch (err) {
+    vaultAddErrorEl.textContent = err.message;
+    vaultAddErrorEl.hidden = false;
+  } finally {
+    done();
+  }
+}
+
+/**
+ * Reads the display parts of an otpauth URI (never the secret), splitting "Issuer:account".
+ * @param uri - the scanned otpauth:// URI
+ * @returns the account label and issuer, empty strings when absent
+ */
+function readOtpauthLabel(uri) {
+  try {
+    const url = new URL(uri);
+    const raw = decodeURIComponent(url.pathname.replace(/^\//, ''));
+    const colon = raw.indexOf(':');
+    const prefix = colon === -1 ? '' : raw.slice(0, colon).trim();
+    const label = (colon === -1 ? raw : raw.slice(colon + 1)).trim();
+    return { label, issuer: url.searchParams.get('issuer')?.trim() || prefix };
+  } catch {
+    return { label: '', issuer: '' };
+  }
+}
+
+/**
+ * Screenshots the current tab and decodes a 2FA setup QR from it, filling the add form.
+ * @returns resolves once the URI is filled in or the error is shown
+ */
+async function scanQrOnScreen() {
+  vaultAddErrorEl.hidden = true;
+  const done = setBusy(vaultScanEl, 'Scanning…');
+  try {
+    const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
+    const uri = await decodeQr(dataUrl);
+    if (!uri.startsWith('otpauth://')) {
+      throw new Error('The QR code on screen is not a 2FA setup code.');
+    }
+    vaultAddInputEl.value = uri;
+    // Pre-fill from the QR so the fields show exactly what will be saved; edit them to rename.
+    const { label, issuer } = readOtpauthLabel(uri);
+    vaultAddLabelEl.value = label;
+    vaultAddIssuerEl.value = issuer;
+    vaultAddScannedEl.textContent = 'QR scanned. Rename below if you like, then click “Add to vault”.';
+    vaultAddScannedEl.hidden = false;
+    vaultAddLabelEl.focus();
+    vaultAddLabelEl.select();
+  } catch (err) {
+    vaultAddErrorEl.textContent = err.message;
+    vaultAddErrorEl.hidden = false;
+  } finally {
+    done();
+  }
+}
+
+/**
+ * Sends one downscaled frame to the QR worker and waits for its verdict.
+ * @param worker - the QR decoding worker
+ * @param image - the decoded screenshot
+ * @param width - the width to scan at
+ * @returns the QR text, or null when none was found
+ */
+function scanAtWidth(worker, image, width) {
+  const scale = width / image.naturalWidth;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('QR scanning took too long. Try again with the QR fully visible.')), QR_SCAN_TIMEOUT_MS);
+    worker.onmessage = (event) => {
+      clearTimeout(timer);
+      resolve(event.data);
+    };
+    worker.onerror = (event) => {
+      clearTimeout(timer);
+      reject(new Error(event.message || 'QR scanning failed.'));
+    };
+    worker.postMessage({ data: pixels.data.buffer, width: pixels.width, height: pixels.height }, [pixels.data.buffer]);
+  });
+}
+
+/**
+ * Finds and decodes a QR code in a screenshot, in a worker and only at capped sizes:
+ * a full-resolution scan can take tens of seconds and would freeze the popup until Chrome kills it.
+ * @param dataUrl - the PNG screenshot as a data URL
+ * @returns the decoded QR text
+ */
+async function decodeQr(dataUrl) {
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+
+  const widths = QR_SCAN_WIDTHS.map((width) => Math.min(width, image.naturalWidth));
+  const worker = new Worker('qr-worker.js');
+  try {
+    for (const width of [...new Set(widths)]) {
+      const found = await scanAtWidth(worker, image, width);
+      if (found) {
+        return found;
+      }
+    }
+  } finally {
+    worker.terminate();
+  }
+  throw new Error('No QR code found on this screen. Make sure the setup QR is fully visible, then try again.');
+}
+
+/**
+ * Opens the change-master-password panel.
+ * @returns nothing
+ */
+function openVaultPasswordForm() {
+  state.expiresAt = 0;
+  setCodesViewVisible(false);
+  hideVaultPanels();
+  vaultPasswordFormEl.hidden = false;
+  vaultPasswordErrorEl.hidden = true;
+  vaultOldPasswordEl.value = '';
+  vaultNewPasswordEl.value = '';
+  vaultNewPasswordConfirmEl.value = '';
+  vaultOldPasswordEl.focus();
+}
+
+/**
+ * Changes the master password after checking the confirmation matches.
+ * @param event - the form submit event
+ * @returns resolves once changed or the error is shown
+ */
+async function submitVaultPassword(event) {
+  event.preventDefault();
+  if (vaultNewPasswordEl.value !== vaultNewPasswordConfirmEl.value) {
+    vaultPasswordErrorEl.textContent = 'The new passwords do not match.';
+    vaultPasswordErrorEl.hidden = false;
+    return;
+  }
+  vaultPasswordErrorEl.hidden = true;
+  try {
+    const reply = await sendToHost({
+      type: 'vault.changePassword',
+      oldPassword: vaultOldPasswordEl.value,
+      newPassword: vaultNewPasswordEl.value,
+    });
+    await writeSessionToken(reply.sessionToken ?? null);
+    await refresh();
+  } catch (err) {
+    vaultPasswordErrorEl.textContent = err.message;
+    vaultPasswordErrorEl.hidden = false;
+  }
+}
+
+/**
+ * Switches between the database and vault tabs.
+ * @param tab - 'db' or 'vault'
+ * @returns resolves once the tab's content is loading
+ */
+async function setTab(tab) {
+  state.tab = tab;
+  state.accounts = [];
+  state.pendingDelete = null;
+  state.expiresAt = 0;
+  listEl.replaceChildren();
+  statusEl.hidden = true;
+  searchEl.value = '';
+  for (const tabEl of tabEls) {
+    tabEl.classList.toggle('is-active', tabEl.dataset.tab === tab);
+    tabEl.setAttribute('aria-selected', String(tabEl.dataset.tab === tab));
+  }
+  settingsEl.hidden = true;
+  settingsToggleEl.hidden = tab !== 'db';
+  settingsToggleEl.setAttribute('aria-expanded', 'false');
+  hideVaultPanels();
+  setCodesViewVisible(true);
+  renderDbLabel();
+  chrome.storage.local.set({ [TAB_KEY]: tab }).catch((err) => console.warn('Could not save the active tab', err));
+
+  if (tab === 'db' && !state.dbUrl) {
+    openSettings();
+    return;
+  }
+  await refresh();
+}
+
+/**
+ * Updates the countdown ring and pulls new codes when the period rolls over.
+ * @returns nothing
+ */
+function tick() {
+  if (!Number.isFinite(state.expiresAt) || state.expiresAt === 0) {
+    return;
+  }
+  const remainingMs = state.expiresAt - Date.now();
+  if (remainingMs <= 0) {
+    refresh();
+    return;
+  }
+  const seconds = Math.ceil(remainingMs / 1000);
+  const ending = seconds <= ENDING_SECONDS;
+  timerSecondsEl.textContent = String(seconds);
+  timerFillEl.style.strokeDashoffset = String(TIMER_CIRCUMFERENCE * (1 - remainingMs / (state.period * 1000)));
+  timerEl.classList.toggle('is-ending', ending);
+  document.body.classList.toggle('is-ending', ending);
+}
+
+searchEl.addEventListener('input', renderList);
+searchEl.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') {
+    return;
+  }
+  const firstRow = listEl.querySelector('.row');
+  firstRow?.click();
+});
+settingsEl.addEventListener('submit', saveSettings);
+settingsCancelEl.addEventListener('click', () => {
+  closeSettings();
+  refresh();
+});
+settingsToggleEl.addEventListener('click', () => {
+  if (settingsEl.hidden) {
+    openSettings();
+  } else if (state.dbUrl) {
+    closeSettings();
+    refresh();
+  }
+});
+dbLabelEl.addEventListener('click', () => openSettings());
+
+for (const tabEl of tabEls) {
+  tabEl.addEventListener('click', () => setTab(tabEl.dataset.tab));
+}
+vaultLockEl.addEventListener('submit', submitVaultLock);
+vaultAddEl.addEventListener('submit', submitVaultAdd);
+vaultAddToggleEl.addEventListener('click', openVaultAdd);
+vaultAddCancelEl.addEventListener('click', () => refresh());
+vaultScanEl.addEventListener('click', scanQrOnScreen);
+vaultAddInputEl.addEventListener('input', () => {
+  vaultAddScannedEl.hidden = true;
+});
+vaultChangePasswordEl.addEventListener('click', openVaultPasswordForm);
+vaultPasswordCancelEl.addEventListener('click', () => refresh());
+vaultPasswordFormEl.addEventListener('submit', submitVaultPassword);
+vaultLockNowEl.addEventListener('click', async () => {
+  try {
+    await sendToHost({ type: 'vault.lock' });
+  } catch (err) {
+    console.warn('Could not lock the vault', err);
+  }
+  await writeSessionToken(null);
+  await refresh();
+});
+
+chrome.storage.local
+  .get([LAST_COPIED_KEY, DB_URL_KEY, TAB_KEY])
+  .then((stored) => {
+    state.lastCopiedAt = stored[LAST_COPIED_KEY] ?? {};
+    state.dbUrl = stored[DB_URL_KEY] ?? null;
+    state.tab = stored[TAB_KEY] === 'vault' ? 'vault' : 'db';
+  })
+  .catch((err) => {
+    console.warn('Could not read saved settings', err);
+  })
+  .finally(() => {
+    setTab(state.tab);
+    setInterval(tick, TICK_MS);
+  });
