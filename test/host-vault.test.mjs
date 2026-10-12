@@ -154,7 +154,22 @@ test('an export made by one host imports into another host, end-to-end', async (
 // A database name that doesn't exist: reading `users` from it creates nothing in Mongo.
 const TEST_DB_URL = `mongodb://localhost:27017/devauth_test_${process.pid}`;
 
-test('the database URL is saved once, then codes are read without the popup ever sending it again', async () => {
+/** The save-and-read test needs a local MongoDB; skip it (with a reason) on machines without one. */
+async function localMongoReachable() {
+  const { MongoClient } = await import('mongodb');
+  const client = new MongoClient(TEST_DB_URL, { serverSelectionTimeoutMS: 1000 });
+  try {
+    await client.connect();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await client.close();
+  }
+}
+const MONGO_SKIP = (await localMongoReachable()) ? false : 'no local MongoDB on localhost:27017';
+
+test('the database URL is saved once, then codes are read without the popup ever sending it again', { skip: MONGO_SKIP }, async () => {
   const host = startHost();
   try {
     await host.send({ type: 'vault.create', password: PASSWORD });
